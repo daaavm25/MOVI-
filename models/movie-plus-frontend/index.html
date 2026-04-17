@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Movie + | Tu universo cinematográfico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body data-theme="dark">
+<a class="skip-link" href="#mainContent">Saltar al contenido principal</a>
+
+<!-- ============ SIDEBAR ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar__brand">
+    <span class="sidebar__logo" aria-hidden="true">🎬</span>
+    <div>
+      <h1 class="sidebar__title">Movie +</h1>
+      <span class="sidebar__tagline">Tu universo de cine</span>
+    </div>
+  </div>
+
+  <nav class="sidebar__nav" aria-label="Navegación principal">
+    <a class="nav-btn is-active" data-view="searchView" href="#searchView" aria-current="page">
+      <span class="nav-btn__icon" aria-hidden="true">🔍</span>
+      <span class="nav-btn__label">Explorar</span>
+    </a>
+    <a class="nav-btn" data-view="collectionView" href="#collectionView" aria-current="false">
+      <span class="nav-btn__icon" aria-hidden="true">⭐</span>
+      <span class="nav-btn__label">Colección</span>
+    </a>
+    <a class="nav-btn" data-view="aboutView" href="#aboutView" aria-current="false">
+      <span class="nav-btn__icon" aria-hidden="true">ℹ️</span>
+      <span class="nav-btn__label">Acerca</span>
+    </a>
+  </nav>
+
+  <div class="sidebar__divider"></div>
+
+  <div class="sidebar__prefs" role="region" aria-label="Preferencias de apariencia">
+    <p class="sidebar__section-title">Preferencias</p>
+
+    <button id="themeSwitchBtn" class="theme-switch" type="button" role="switch" aria-checked="true" aria-label="Cambiar entre modo claro y oscuro">
+      <span class="theme-switch__icon" aria-hidden="true">☀</span>
+      <span class="theme-switch__track"><span class="theme-switch__thumb"></span></span>
+      <span class="theme-switch__icon" aria-hidden="true">🌙</span>
+    </button>
+    <p id="themeSwitchLabel" class="sidebar__caption" aria-live="polite">Modo oscuro activo</p>
+
+    <div class="sidebar__font-row" role="group" aria-label="Tamaño de fuente">
+      <button id="fontDecreaseBtn" class="pref-btn" type="button" aria-label="Reducir tamaño de letra">A−</button>
+      <span id="fontScaleLabel" class="sidebar__font-value" aria-live="polite">100%</span>
+      <button id="fontIncreaseBtn" class="pref-btn" type="button" aria-label="Aumentar tamaño de letra">A+</button>
+    </div>
+
+    <button id="colorblindModeBtn" class="pref-btn pref-btn--wide" type="button" aria-pressed="false">
+      <span aria-hidden="true">👁</span>
+      <span id="colorblindModeLabel">Daltonismo</span>
+    </button>
+  </div>
+
+  <div class="sidebar__footer">
+    <span id="authText" class="sidebar__auth-text">Sesión cerrada</span>
+    <button id="loginBtn" class="auth-lamp lamp-off" type="button" title="Iniciar o registrarse" aria-label="Abrir panel de sesión" aria-haspopup="dialog">💡</button>
+  </div>
+</aside>
+
+<!-- Mobile top bar -->
+<header class="topbar-mobile" id="topbarMobile">
+  <button class="topbar-mobile__hamburger" id="sidebarToggle" type="button" aria-label="Abrir menú" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+  <h1 class="topbar-mobile__brand">🎬 Movie +</h1>
+</header>
+
+<!-- Sidebar overlay (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- ============ MAIN DASHBOARD ============ -->
+<main id="mainContent" class="dashboard" tabindex="-1">
+
+  <!-- SEARCH VIEW -->
+  <section id="searchView" class="view is-visible" aria-labelledby="searchTitle">
+    <div class="hero-search">
+      <h2 id="searchTitle" class="hero-search__title">Descubre tu próxima<br><span class="text-gradient">película favorita</span></h2>
+      <p class="hero-search__subtitle">Busca entre miles de títulos y encuentra tu próxima obsesión cinematográfica.</p>
+      <form id="searchForm" class="hero-search__form" novalidate>
+        <label for="searchInput" class="sr-only">Nombre de película</label>
+        <div class="search-controls">
+          <div class="search-controls__input-wrap">
+            <span class="search-controls__icon" aria-hidden="true">🔍</span>
+            <input id="searchInput" type="search" name="searchInput" placeholder="¿Qué quieres ver hoy?" autocomplete="off">
+          </div>
+          <button id="searchBtn" type="submit">Buscar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="filterBar" class="filter-bar" role="group" aria-label="Filtros de búsqueda">
+      <button class="filter-chip is-active" data-filter="populares" type="button">⭐ Populares</button>
+      <button class="filter-chip" data-filter="menos_populares" type="button">📉 Menos populares</button>
+      <button class="filter-chip" data-filter="genero_accion" type="button">💥 Acción</button>
+      <button class="filter-chip" data-filter="genero_fantasia" type="button">🧙 Fantasía</button>
+      <button class="filter-chip" data-filter="genero_terror" type="button">👻 Terror</button>
+      <button class="filter-chip" data-filter="genero_scifi" type="button">🚀 Sci-Fi</button>
+      <button class="filter-chip" data-filter="genero_comedia" type="button">😂 Comedia</button>
+      <button class="filter-chip" data-filter="genero_drama" type="button">🎭 Drama</button>
+      <button class="filter-chip" data-filter="genero_animacion" type="button">🎨 Animación</button>
+    </div>
+
+    <section id="carouselSection" class="carousel-section" aria-labelledby="carouselTitle">
+      <div class="carousel-header">
+        <h3 id="carouselTitle" class="carousel-title">🎞 Películas del momento</h3>
+        <button id="carouselRefreshBtn" class="secondary-btn" type="button" aria-label="Mezclar películas">🔀 Mezclar</button>
+      </div>
+      <div class="carousel-viewport" role="region" aria-label="Carrusel de películas" aria-live="polite">
+        <button class="carousel-arrow carousel-prev" id="carouselPrev" type="button" aria-label="Anterior">‹</button>
+        <div id="carouselTrack" class="carousel-track"></div>
+        <button class="carousel-arrow carousel-next" id="carouselNext" type="button" aria-label="Siguiente">›</button>
+      </div>
+    </section>
+
+    <div id="searchStatus" class="status" role="status" aria-live="polite"></div>
+    <section id="resultados" class="cards" aria-live="polite" aria-busy="false" aria-label="Resultados de búsqueda"></section>
+  </section>
+
+  <!-- COLLECTION VIEW -->
+  <section id="collectionView" class="view" aria-labelledby="collectionTitle" hidden>
+    <div class="view-header">
+      <div>
+        <h2 id="collectionTitle" class="view-header__title">⭐ Mi Colección</h2>
+        <p class="view-header__sub">Tus películas favoritas, listas para disfrutar.</p>
+      </div>
+      <button id="refreshCollectionBtn" class="secondary-btn" type="button">↻ Actualizar</button>
+    </div>
+    <div id="collectionStatus" class="status" role="status" aria-live="polite"></div>
+    <section id="coleccion" class="cards" aria-live="polite" aria-busy="false" aria-label="Películas guardadas"></section>
+  </section>
+
+  <!-- ABOUT VIEW -->
+  <section id="aboutView" class="view" aria-labelledby="aboutTitle" hidden>
+    <div class="view-header">
+      <h2 id="aboutTitle" class="view-header__title">Acerca de Movie +</h2>
+      <p class="view-header__sub">Todo sobre la plataforma.</p>
+    </div>
+    <div class="about-grid">
+      <article class="about-card">
+        <div class="about-card__icon">🎬</div>
+        <h3>Funcionalidades</h3>
+        <p>Busca películas en tiempo real, explora detalles ampliados y descubre plataformas donde verlas.</p>
+        <p>Guarda en tu colección personal y organiza tus recomendaciones.</p>
+      </article>
+      <article class="about-card">
+        <div class="about-card__icon">🎯</div>
+        <h3>Para quién es</h3>
+        <p>Ideal para cinéfilos, estudiantes y usuarios casuales que quieren descubrir películas rápido.</p>
+      </article>
+      <article class="about-card about-card-highlight">
+        <div class="about-card__icon">🚀</div>
+        <h3>Cómo empezar</h3>
+        <p>Usa el buscador para encontrar títulos y guarda tus favoritas en un solo lugar.</p>
+        <button id="goSearchBtn" class="about-cta" type="button">Ir al buscador →</button>
+      </article>
+    </div>
+  </section>
+
+</main>
+
+<div id="toastRegion" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
+
+<!-- ============ MOVIE MODAL ============ -->
+<div id="movieModal" class="movie-modal" hidden>
+  <div class="movie-modal__overlay" data-close-modal="true" aria-hidden="true"></div>
+  <section id="movieModalContent" class="movie-modal__content" role="dialog" aria-modal="true" aria-labelledby="movieModalTitle" aria-describedby="movieModalMeta movieModalDescription movieModalProvidersStatus" tabindex="-1">
+    <button id="closeMovieModalBtn" class="movie-modal__close" type="button" aria-label="Cerrar ventana de película">×</button>
+
+    <figure class="movie-modal__media">
+      <img id="movieModalImage" src="" alt="Póster ampliado de película">
+    </figure>
+
+    <div class="movie-modal__info">
+      <span id="movieModalTag" class="movie-modal__tag">Detalle</span>
+      <h3 id="movieModalTitle">Título</h3>
+      <p id="movieModalMeta" class="movie-modal__meta"></p>
+      <p id="movieModalDescription" class="movie-modal__description"></p>
+
+      <div class="movie-modal__actions">
+        <button id="movieModalFavoriteBtn" class="save-btn movie-modal__favorite" type="button">Agregar a favoritos</button>
+      </div>
+
+      <section class="movie-modal__player" aria-labelledby="playerSectionTitle">
+        <h4 id="playerSectionTitle">🎬 Ver película</h4>
+        <div id="moviePlayerLinks" class="movie-links-list" hidden></div>
+        <div id="moviePlayerContainer" class="player-container" hidden>
+          <video id="moviePlayerVideo" class="player-iframe" controls autoplay preload="auto" title="Reproductor de película"></video>
+          <iframe id="moviePlayerFrame" class="player-iframe" allowfullscreen allow="autoplay; fullscreen" title="Reproductor de película" src="" style="display:none"></iframe>
+        </div>
+        <p id="moviePlayerStatus" class="player-status">Reproducción no disponible por el momento.</p>
+      </section>
+
+      <section class="movie-modal__providers" aria-labelledby="movieProvidersTitle">
+        <h4 id="movieProvidersTitle">📡 Dónde verla</h4>
+        <p id="movieModalProvidersStatus" class="movie-modal__providers-status" role="status" aria-live="polite">Consulta de plataformas pendiente.</p>
+        <ul id="movieModalProvidersList" class="movie-modal__providers-list" aria-label="Plataformas disponibles"></ul>
+      </section>
+    </div>
+  </section>
+</div>
+
+<script src="app.js?v=8"></script>
+</body>
+</html>
