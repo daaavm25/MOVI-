@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { corePlugins: { preflight: false } }</script>
 </head>
 
 <body data-theme="dark">
@@ -35,6 +37,10 @@
     <a class="nav-btn" data-view="aboutView" href="#aboutView" aria-current="false">
       <span class="nav-btn__icon" aria-hidden="true">ℹ️</span>
       <span class="nav-btn__label">Acerca</span>
+    </a>
+    <a class="nav-btn" data-view="settingsView" href="#settingsView" aria-current="false">
+      <span class="nav-btn__icon" aria-hidden="true">⚙️</span>
+      <span class="nav-btn__label">Configuración</span>
     </a>
   </nav>
 
@@ -164,6 +170,170 @@
         <p>Usa el buscador para encontrar títulos y guarda tus favoritas en un solo lugar.</p>
         <button id="goSearchBtn" class="about-cta" type="button">Ir al buscador →</button>
       </article>
+    </div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section id="settingsView" class="view" aria-labelledby="settingsTitle" hidden>
+    <div class="view-header">
+      <div>
+        <h2 id="settingsTitle" class="view-header__title">⚙️ Configuración</h2>
+        <p class="view-header__sub">Personaliza tu experiencia y opciones de accesibilidad.</p>
+      </div>
+      <button id="settingsResetBtn" class="secondary-btn" type="button">↩ Restablecer todo</button>
+    </div>
+
+    <div class="settings-grid">
+
+      <!-- APARIENCIA -->
+      <div class="settings-card">
+        <div class="settings-card__header">
+          <span class="settings-card__icon">🎨</span>
+          <h3 class="settings-card__title">Apariencia</h3>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Tema de color</label>
+          <div class="selector-group" id="themeGroup" role="radiogroup" aria-label="Tema de color">
+            <button class="selector-option" data-value="dark" type="button" aria-pressed="false">🌙 Oscuro</button>
+            <button class="selector-option" data-value="light" type="button" aria-pressed="false">☀️ Claro</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Tamaño del texto</label>
+          <div class="font-scale-control">
+            <button id="settingsFontDecBtn" class="scale-btn" type="button" aria-label="Reducir tamaño de letra">A−</button>
+            <div class="scale-track"><div id="settingsFontBar" class="scale-fill" style="width:22%"></div></div>
+            <button id="settingsFontIncBtn" class="scale-btn" type="button" aria-label="Aumentar tamaño de letra">A+</button>
+            <span id="settingsFontVal" class="scale-value" aria-live="polite">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCESIBILIDAD VISUAL -->
+      <div class="settings-card">
+        <div class="settings-card__header">
+          <span class="settings-card__icon">👁</span>
+          <h3 class="settings-card__title">Accesibilidad Visual</h3>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Modo de visión</label>
+          <div class="selector-group" id="visionModeGroup" role="radiogroup" aria-label="Modo de visión">
+            <button class="selector-option is-active" data-value="default" type="button" aria-pressed="true">Normal</button>
+            <button class="selector-option" data-value="colorblind" type="button" aria-pressed="false">Daltonismo</button>
+            <button class="selector-option" data-value="high-contrast" type="button" aria-pressed="false">Alto contraste</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Fuente de lectura</label>
+          <div class="selector-group" id="fontFamilyGroup" role="radiogroup" aria-label="Tipo de fuente">
+            <button class="selector-option is-active" data-value="inter" type="button" aria-pressed="true">Sans-serif</button>
+            <button class="selector-option" data-value="serif" type="button" aria-pressed="false" style="font-family:Georgia,serif">Serif</button>
+            <button class="selector-option" data-value="mono" type="button" aria-pressed="false" style="font-family:monospace">Mono</button>
+            <button class="selector-option" data-value="open" type="button" aria-pressed="false">Dislexia</button>
+          </div>
+        </div>
+        <div class="settings-toggle-row">
+          <div>
+            <p class="settings-toggle-label">Reducir transparencias</p>
+            <p class="settings-toggle-desc">Elimina efectos de vidrio y blur para mayor legibilidad</p>
+          </div>
+          <button id="reduceTransBtn" class="settings-toggle" type="button" role="switch" aria-checked="false" aria-label="Reducir transparencias">
+            <span class="settings-toggle__thumb"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ACCESIBILIDAD MOTRIZ -->
+      <div class="settings-card">
+        <div class="settings-card__header">
+          <span class="settings-card__icon">🖱️</span>
+          <h3 class="settings-card__title">Accesibilidad Motriz</h3>
+        </div>
+        <div class="settings-toggle-row">
+          <div>
+            <p class="settings-toggle-label">Reducir animaciones</p>
+            <p class="settings-toggle-desc">Elimina transiciones y movimientos de la interfaz</p>
+          </div>
+          <button id="reduceMotionBtn" class="settings-toggle" type="button" role="switch" aria-checked="false" aria-label="Reducir animaciones">
+            <span class="settings-toggle__thumb"></span>
+          </button>
+        </div>
+        <div class="settings-toggle-row">
+          <div>
+            <p class="settings-toggle-label">Objetivos táctiles grandes</p>
+            <p class="settings-toggle-desc">Aumenta el tamaño mínimo de botones e inputs (48px)</p>
+          </div>
+          <button id="largeTargetsBtn" class="settings-toggle" type="button" role="switch" aria-checked="false" aria-label="Objetivos táctiles grandes">
+            <span class="settings-toggle__thumb"></span>
+          </button>
+        </div>
+        <div class="settings-toggle-row">
+          <div>
+            <p class="settings-toggle-label">Cursor grande</p>
+            <p class="settings-toggle-desc">Aumenta el tamaño del cursor del ratón en toda la app</p>
+          </div>
+          <button id="largeCursorBtn" class="settings-toggle" type="button" role="switch" aria-checked="false" aria-label="Cursor grande">
+            <span class="settings-toggle__thumb"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- REPRODUCCIÓN -->
+      <div class="settings-card">
+        <div class="settings-card__header">
+          <span class="settings-card__icon">🎬</span>
+          <h3 class="settings-card__title">Preferencias de Reproducción</h3>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Idioma por defecto</label>
+          <div class="selector-group selector-group--scroll" id="defaultLangGroup" role="radiogroup" aria-label="Idioma por defecto para torrents"></div>
+        </div>
+        <div class="settings-field">
+          <label class="settings-field__label">Calidad por defecto</label>
+          <div class="selector-group" id="defaultQualGroup" role="radiogroup" aria-label="Calidad por defecto para torrents">
+            <button class="selector-option" data-value="all" type="button" aria-pressed="false">🎬 Todas</button>
+            <button class="selector-option" data-value="4k" type="button" aria-pressed="false">✨ 4K</button>
+            <button class="selector-option" data-value="1080p" type="button" aria-pressed="false">🔷 1080p</button>
+            <button class="selector-option" data-value="720p" type="button" aria-pressed="false">🔹 720p</button>
+            <button class="selector-option" data-value="480p" type="button" aria-pressed="false">📱 480p</button>
+          </div>
+        </div>
+        <div class="settings-toggle-row">
+          <div>
+            <p class="settings-toggle-label">Subtítulos activados</p>
+            <p class="settings-toggle-desc">Muestra subtítulos automáticamente al reproducir</p>
+          </div>
+          <button id="defaultSubtitlesBtn" class="settings-toggle" type="button" role="switch" aria-checked="true" aria-label="Activar subtítulos por defecto">
+            <span class="settings-toggle__thumb"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SERVIDOR API / GITHUB PAGES -->
+      <div class="settings-card settings-card--wide">
+        <div class="settings-card__header">
+          <span class="settings-card__icon">🌐</span>
+          <h3 class="settings-card__title">Servidor API &amp; GitHub Pages</h3>
+        </div>
+        <p class="settings-card__desc">Configura la URL del servidor backend. Necesario si despliegas la interfaz en GitHub Pages u otro host estático separado del servidor.</p>
+        <div class="settings-url-row">
+          <input id="apiUrlInput" type="url" class="settings-url-input" placeholder="https://tu-servidor-api.com" autocomplete="off" spellcheck="false">
+          <button id="apiUrlSaveBtn" class="btn btn-primary" type="button">💾 Guardar</button>
+          <button id="apiUrlResetBtn" class="secondary-btn" type="button">↩ Restablecer</button>
+        </div>
+        <p id="apiUrlStatus" class="settings-url-status" aria-live="polite"></p>
+        <div class="settings-card__info">
+          <strong>💡 Cómo desplegar en GitHub Pages</strong>
+          <ol>
+            <li>1. Despliega el backend en Railway, Render, Heroku u otro servicio externo.</li>
+            <li>2. Copia la URL pública del backend y pégala en el campo de arriba. Guarda y recarga.</li>
+            <li>3. Sube el contenido de la carpeta <code style="background:var(--bg-surface);padding:1px 6px;border-radius:4px;font-size:0.85em">movie-plus-frontend/</code> a un repositorio de GitHub.</li>
+            <li>4. Ve a <em>Settings → Pages</em>, selecciona la rama y carpeta raíz <code style="background:var(--bg-surface);padding:1px 6px;border-radius:4px;font-size:0.85em">/ (root)</code>.</li>
+            <li>5. GitHub Pages publicará la interfaz automáticamente en minutos.</li>
+          </ol>
+        </div>
+      </div>
+
     </div>
   </section>
 

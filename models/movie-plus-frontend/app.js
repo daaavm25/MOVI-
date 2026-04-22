@@ -1,4 +1,11 @@
-const API = `${window.location.protocol}//${window.location.host}`;
+function getApiBase() {
+	const custom = localStorage.getItem("movieplus:apiUrl");
+	if (custom && custom.trim()) {
+		return custom.trim().replace(/\/$/, "");
+	}
+	return `${window.location.protocol}//${window.location.host}`;
+}
+const API = getApiBase();
 const PLACEHOLDER_IMAGE = "https://placehold.co/500x750/e4edf3/5f7383?text=Sin+imagen";
 
 const STORAGE_KEYS = {
@@ -10,7 +17,14 @@ const STORAGE_KEYS = {
 	colorblind: "movieplus:colorblind",
 	authToken: "movieplus:token",
 	userId: "movieplus:userId",
-	username: "movieplus:username"
+	username: "movieplus:username",
+	apiUrl: "movieplus:apiUrl",
+	highContrast: "movieplus:highContrast",
+	reduceMotion: "movieplus:reduceMotion",
+	largeTargets: "movieplus:largeTargets",
+	largeCursor: "movieplus:largeCursor",
+	reduceTrans: "movieplus:reduceTrans",
+	fontFamily: "movieplus:fontFamily"
 };
 
 const FONT_SCALE_MIN = 0.9;
@@ -68,6 +82,12 @@ const state = {
 	theme: "dark",
 	fontScale: 1,
 	colorblind: false,
+	highContrast: false,
+	reduceMotion: false,
+	largeTargets: false,
+	largeCursor: false,
+	reduceTrans: false,
+	fontFamily: "inter",
 	searchResults: [],
 	watchlist: [],
 	debounceId: null,
@@ -85,7 +105,7 @@ const state = {
 	carouselIntervalId: null
 };
 
-const AVAILABLE_VIEWS = ["searchView", "collectionView", "aboutView"];
+const AVAILABLE_VIEWS = ["searchView", "collectionView", "aboutView", "settingsView"];
 
 const elements = {
 	loginBtn: document.getElementById("loginBtn"),
@@ -133,7 +153,8 @@ const elements = {
 	carouselTrack: document.getElementById("carouselTrack"),
 	carouselPrev: document.getElementById("carouselPrev"),
 	carouselNext: document.getElementById("carouselNext"),
-	carouselRefreshBtn: document.getElementById("carouselRefreshBtn")
+	carouselRefreshBtn: document.getElementById("carouselRefreshBtn"),
+	settingsView: document.getElementById("settingsView")
 };
 
 function init() {
@@ -142,6 +163,7 @@ function init() {
 	renderAuthState();
 	applyUserPreferences();
 	setActiveView(state.activeView, false);
+	initSettingsView();
 
 	elements.searchInput.value = state.searchQuery;
 	renderModalFavoriteState();
@@ -311,6 +333,13 @@ function hydrateState() {
 	}
 
 	state.colorblind = localStorage.getItem(STORAGE_KEYS.colorblind) === "1";
+	state.highContrast = localStorage.getItem(STORAGE_KEYS.highContrast) === "1";
+	state.reduceMotion = localStorage.getItem(STORAGE_KEYS.reduceMotion) === "1";
+	state.largeTargets = localStorage.getItem(STORAGE_KEYS.largeTargets) === "1";
+	state.largeCursor = localStorage.getItem(STORAGE_KEYS.largeCursor) === "1";
+	state.reduceTrans = localStorage.getItem(STORAGE_KEYS.reduceTrans) === "1";
+	const savedFont = localStorage.getItem(STORAGE_KEYS.fontFamily);
+	if (savedFont) state.fontFamily = savedFont;
 }
 
 function persistValue(key, value) {
@@ -366,7 +395,13 @@ function toggleColorblindMode() {
 
 function applyUserPreferences() {
 	document.body.setAttribute("data-theme", state.theme);
-	document.body.setAttribute("data-vision", state.colorblind ? "colorblind" : "default");
+	const visionMode = state.colorblind ? "colorblind" : (state.highContrast ? "high-contrast" : "default");
+	document.body.setAttribute("data-vision", visionMode);
+	document.body.setAttribute("data-reduce-motion", state.reduceMotion ? "1" : "0");
+	document.body.setAttribute("data-large-targets", state.largeTargets ? "1" : "0");
+	document.body.setAttribute("data-large-cursor", state.largeCursor ? "1" : "0");
+	document.body.setAttribute("data-reduce-trans", state.reduceTrans ? "1" : "0");
+	document.body.setAttribute("data-font", state.fontFamily || "inter");
 	document.documentElement.style.setProperty("--font-scale", String(state.fontScale));
 	renderPreferenceControls();
 }
@@ -577,7 +612,7 @@ function setActiveView(viewId, persist = true) {
 		persistValue(STORAGE_KEYS.activeView, target);
 	}
 
-	const viewElements = [elements.searchView, elements.collectionView, elements.aboutView];
+	const viewElements = [elements.searchView, elements.collectionView, elements.aboutView, elements.settingsView];
 	viewElements.forEach((viewElement) => {
 		const isVisible = viewElement.id === target;
 		viewElement.hidden = !isVisible;
@@ -1213,72 +1248,85 @@ function renderTorrentSearch(movie) {
 	elements.moviePlayerLinks.innerHTML = "";
 	elements.moviePlayerLinks.hidden = false;
 
-	// Language selector row
+	// ── Language selector ──
 	const langRow = document.createElement("div");
-	langRow.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px";
+	langRow.className = "torrent-selector-row";
+	const langLabel = document.createElement("span");
+	langLabel.className = "torrent-selector-label";
+	langLabel.textContent = "🌐 Idioma";
+	langRow.appendChild(langLabel);
 
-	const langLabel = document.createElement("label");
-	langLabel.textContent = "Idioma:";
-	langLabel.style.cssText = "color:#aaa;font-size:0.9em;white-space:nowrap";
-
-	const langSelect = document.createElement("select");
-	langSelect.id = "torrentLangSelect";
-	langSelect.style.cssText = "flex:1;padding:6px 10px;border-radius:6px;border:1px solid #444;background:#1a1a2e;color:#eee;font-size:0.9em";
+	const langGroup = document.createElement("div");
+	langGroup.className = "selector-group selector-group--scroll";
+	langGroup.setAttribute("role", "group");
+	langGroup.setAttribute("aria-label", "Seleccionar idioma para buscar torrents");
 
 	const savedLang = getSelectedTorrentLang();
 	for (const [code, info] of Object.entries(TORRENT_LANG_OPTIONS)) {
-		const opt = document.createElement("option");
-		opt.value = code;
-		opt.textContent = info.label;
-		if (code === savedLang) opt.selected = true;
-		langSelect.appendChild(opt);
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "selector-option" + (code === savedLang ? " is-active" : "");
+		btn.dataset.value = code;
+		btn.setAttribute("aria-pressed", String(code === savedLang));
+		btn.textContent = code === "all" ? "🌐 Todos" : info.label;
+		btn.addEventListener("click", () => {
+			setSelectedTorrentLang(code);
+			langGroup.querySelectorAll(".selector-option").forEach(b => {
+				b.classList.toggle("is-active", b.dataset.value === code);
+				b.setAttribute("aria-pressed", String(b.dataset.value === code));
+			});
+		});
+		langGroup.appendChild(btn);
 	}
-	langSelect.onchange = () => setSelectedTorrentLang(langSelect.value);
+	langRow.appendChild(langGroup);
 
-	langRow.appendChild(langLabel);
-	langRow.appendChild(langSelect);
-
-	// Quality preference row
+	// ── Quality selector ──
 	const qualRow = document.createElement("div");
-	qualRow.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px";
+	qualRow.className = "torrent-selector-row";
+	const qualLabel = document.createElement("span");
+	qualLabel.className = "torrent-selector-label";
+	qualLabel.textContent = "📺 Calidad";
+	qualRow.appendChild(qualLabel);
 
-	const qualLabel = document.createElement("label");
-	qualLabel.textContent = "Calidad:";
-	qualLabel.style.cssText = "color:#aaa;font-size:0.9em;white-space:nowrap";
-
-	const qualSelect = document.createElement("select");
-	qualSelect.id = "torrentQualitySelect";
-	qualSelect.style.cssText = "flex:1;padding:6px 10px;border-radius:6px;border:1px solid #444;background:#1a1a2e;color:#eee;font-size:0.9em";
+	const qualGroup = document.createElement("div");
+	qualGroup.className = "selector-group";
+	qualGroup.setAttribute("role", "group");
+	qualGroup.setAttribute("aria-label", "Seleccionar calidad preferida");
 
 	const qualOptions = [
-		{ value: "all", label: "Cualquier calidad" },
-		{ value: "4k", label: "4K / 2160p" },
-		{ value: "1080p", label: "1080p Full HD" },
-		{ value: "720p", label: "720p HD" },
-		{ value: "480p", label: "480p SD" }
+		{ value: "all", label: "Todas", icon: "🎬" },
+		{ value: "4k", label: "4K", icon: "✨" },
+		{ value: "1080p", label: "1080p", icon: "🔷" },
+		{ value: "720p", label: "720p", icon: "🔹" },
+		{ value: "480p", label: "480p", icon: "📱" }
 	];
 	const savedQual = localStorage.getItem("movieplus:torrentQuality") || "all";
 	qualOptions.forEach(q => {
-		const opt = document.createElement("option");
-		opt.value = q.value;
-		opt.textContent = q.label;
-		if (q.value === savedQual) opt.selected = true;
-		qualSelect.appendChild(opt);
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "selector-option" + (q.value === savedQual ? " is-active" : "");
+		btn.dataset.value = q.value;
+		btn.setAttribute("aria-pressed", String(q.value === savedQual));
+		btn.innerHTML = `<span aria-hidden="true">${q.icon}</span> ${q.label}`;
+		btn.addEventListener("click", () => {
+			localStorage.setItem("movieplus:torrentQuality", q.value);
+			qualGroup.querySelectorAll(".selector-option").forEach(b => {
+				b.classList.toggle("is-active", b.dataset.value === q.value);
+				b.setAttribute("aria-pressed", String(b.dataset.value === q.value));
+			});
+		});
+		qualGroup.appendChild(btn);
 	});
-	qualSelect.onchange = () => localStorage.setItem("movieplus:torrentQuality", qualSelect.value);
-
-	qualRow.appendChild(qualLabel);
-	qualRow.appendChild(qualSelect);
+	qualRow.appendChild(qualGroup);
 
 	const torrentBtn = document.createElement("button");
 	torrentBtn.type = "button";
-	torrentBtn.className = "btn btn-primary";
-	torrentBtn.style.width = "100%";
-	torrentBtn.textContent = "Buscar torrents para reproducir";
+	torrentBtn.className = "btn btn-primary torrent-search-btn";
+	torrentBtn.innerHTML = '<span aria-hidden="true">🔍</span> Buscar torrents para reproducir';
 
 	const torrentResultsDiv = document.createElement("div");
 	torrentResultsDiv.id = "torrentResultsDiv";
-	torrentResultsDiv.style.marginTop = "8px";
+	torrentResultsDiv.className = "torrent-results";
 
 	torrentBtn.onclick = () => buscarYMostrarTorrents(movie, torrentResultsDiv);
 
@@ -1339,8 +1387,7 @@ async function buscarYMostrarTorrents(movie, resultsDiv) {
 		filtered.slice(0, 20).forEach((torrent) => {
 			const btn = document.createElement("button");
 			btn.type = "button";
-			btn.className = "movie-link-pill";
-			btn.style.cssText = "margin:4px;display:block;width:100%;text-align:left;position:relative;padding:8px 12px";
+			btn.className = "movie-link-pill torrent-result-btn";
 
 			const qualColor = QUALITY_COLORS[torrent.detectedQuality] || "#666";
 			const qualLabel = (torrent.detectedQuality || "?").toUpperCase();
@@ -1503,80 +1550,119 @@ function renderPlayerControls(info, torrent, currentVideo) {
 
 	const bar = document.createElement("div");
 	bar.id = "torrentPlayerControls";
-	bar.style.cssText = "display:flex;gap:10px;align-items:center;padding:8px 12px;background:#111827;border-radius:8px;margin-top:6px;flex-wrap:wrap";
+	bar.className = "player-controls-bar";
 
-	// Quality selector (if multiple videos)
+	// ── Quality selector (only if multiple video files available) ──
 	if (info.videos.length > 1) {
+		const qualGroup = document.createElement("div");
+		qualGroup.className = "player-control-group";
+
 		const qualLabel = document.createElement("span");
-		qualLabel.textContent = "Calidad:";
-		qualLabel.style.cssText = "color:#aaa;font-size:0.85em";
-		const qualSelect = document.createElement("select");
-		qualSelect.style.cssText = "padding:4px 8px;border-radius:4px;border:1px solid #444;background:#1a1a2e;color:#eee;font-size:0.85em";
+		qualLabel.className = "player-control-label";
+		qualLabel.textContent = "📺 Calidad";
+		qualGroup.appendChild(qualLabel);
+
+		const qualBtns = document.createElement("div");
+		qualBtns.className = "selector-group selector-group--scroll";
+		qualBtns.setAttribute("role", "group");
+		qualBtns.setAttribute("aria-label", "Seleccionar calidad de video");
+
 		info.videos.forEach(v => {
-			const opt = document.createElement("option");
-			opt.value = v.index;
-			opt.textContent = `${v.name.replace(/^.*[\\/]/, '')} (${v.size})`;
-			if (v.index === currentVideo.index) opt.selected = true;
-			qualSelect.appendChild(opt);
+			const btn = document.createElement("button");
+			btn.type = "button";
+			const shortName = v.name.replace(/^.*[\\/]/, "").replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
+			btn.className = "selector-option" + (v.index === currentVideo.index ? " is-active" : "");
+			btn.dataset.value = String(v.index);
+			btn.setAttribute("aria-pressed", String(v.index === currentVideo.index));
+			btn.title = `${shortName} (${v.size})`;
+			btn.textContent = `${shortName.slice(0, 18)}${shortName.length > 18 ? "…" : ""} · ${v.size}`;
+			btn.addEventListener("click", () => {
+				const video = elements.moviePlayerVideo;
+				video.src = `${API}/api/torrent/file?magnet=${encodeURIComponent(torrent.magnet)}&index=${v.index}`;
+				video.load();
+				video.play();
+				qualBtns.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === String(v.index));
+					b.setAttribute("aria-pressed", String(b.dataset.value === String(v.index)));
+				});
+			});
+			qualBtns.appendChild(btn);
 		});
-		qualSelect.onchange = () => {
-			const newIdx = parseInt(qualSelect.value, 10);
-			const video = elements.moviePlayerVideo;
-			video.src = `${API}/api/torrent/file?magnet=${encodeURIComponent(torrent.magnet)}&index=${newIdx}`;
-			video.load();
-			video.play();
-		};
-		bar.appendChild(qualLabel);
-		bar.appendChild(qualSelect);
+
+		qualGroup.appendChild(qualBtns);
+		bar.appendChild(qualGroup);
 	}
 
-	// Subtitle toggle
-	const subLabel = document.createElement("span");
-	subLabel.textContent = "Subtítulos:";
-	subLabel.style.cssText = "color:#aaa;font-size:0.85em";
-	const subToggle = document.createElement("select");
-	subToggle.style.cssText = "padding:4px 8px;border-radius:4px;border:1px solid #444;background:#1a1a2e;color:#eee;font-size:0.85em";
+	// ── Subtitle selector ──
+	const subGroup = document.createElement("div");
+	subGroup.className = "player-control-group";
 
-	const offOpt = document.createElement("option");
-	offOpt.value = "off";
-	offOpt.textContent = "Desactivados";
-	subToggle.appendChild(offOpt);
+	const subLabel = document.createElement("span");
+	subLabel.className = "player-control-label";
+	subLabel.textContent = "💬 Subtítulos";
+	subGroup.appendChild(subLabel);
+
+	const subBtns = document.createElement("div");
+	subBtns.className = "selector-group selector-group--scroll";
+	subBtns.setAttribute("role", "group");
+	subBtns.setAttribute("aria-label", "Seleccionar subtítulos");
+
+	const savedSubPref = localStorage.getItem("movieplus:subtitles") || "on";
+
+	// Off option
+	const offBtn = document.createElement("button");
+	offBtn.type = "button";
+	offBtn.className = "selector-option" + (savedSubPref === "off" ? " is-active" : "");
+	offBtn.dataset.value = "off";
+	offBtn.setAttribute("aria-pressed", String(savedSubPref === "off"));
+	offBtn.innerHTML = '<span aria-hidden="true">🚫</span> Desactivados';
+	offBtn.addEventListener("click", () => {
+		const video = elements.moviePlayerVideo;
+		const tracks = video.textTracks;
+		for (let i = 0; i < tracks.length; i++) tracks[i].mode = "hidden";
+		localStorage.setItem("movieplus:subtitles", "off");
+		subBtns.querySelectorAll(".selector-option").forEach(b => {
+			b.classList.toggle("is-active", b.dataset.value === "off");
+			b.setAttribute("aria-pressed", String(b.dataset.value === "off"));
+		});
+	});
+	subBtns.appendChild(offBtn);
 
 	if (info.subtitles && info.subtitles.length > 0) {
 		info.subtitles.forEach((sub, i) => {
-			const opt = document.createElement("option");
-			opt.value = String(i);
-			opt.textContent = sub.label || `Subtítulo ${i + 1}`;
-			if (i === 0 && localStorage.getItem("movieplus:subtitles") !== "off") opt.selected = true;
-			subToggle.appendChild(opt);
+			const btn = document.createElement("button");
+			btn.type = "button";
+			const isActive = savedSubPref !== "off" && i === 0;
+			btn.className = "selector-option" + (isActive ? " is-active" : "");
+			btn.dataset.value = String(i);
+			btn.setAttribute("aria-pressed", String(isActive));
+			btn.innerHTML = `<span aria-hidden="true">💬</span> ${sub.label || `Sub ${i + 1}`}`;
+			btn.addEventListener("click", () => {
+				const video = elements.moviePlayerVideo;
+				const tracks = video.textTracks;
+				for (let j = 0; j < tracks.length; j++) tracks[j].mode = "hidden";
+				if (tracks[i]) tracks[i].mode = "showing";
+				localStorage.setItem("movieplus:subtitles", "on");
+				subBtns.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === String(i));
+					b.setAttribute("aria-pressed", String(b.dataset.value === String(i)));
+				});
+			});
+			subBtns.appendChild(btn);
 		});
 	} else {
-		const noSub = document.createElement("option");
-		noSub.value = "none";
-		noSub.textContent = "No disponibles";
-		noSub.disabled = true;
-		subToggle.appendChild(noSub);
+		const noSubBtn = document.createElement("button");
+		noSubBtn.type = "button";
+		noSubBtn.className = "selector-option";
+		noSubBtn.disabled = true;
+		noSubBtn.textContent = "No disponibles";
+		subBtns.appendChild(noSubBtn);
 	}
 
-	subToggle.onchange = () => {
-		const video = elements.moviePlayerVideo;
-		const tracks = video.textTracks;
-		for (let i = 0; i < tracks.length; i++) {
-			tracks[i].mode = "hidden";
-		}
-		if (subToggle.value !== "off" && subToggle.value !== "none") {
-			const idx = parseInt(subToggle.value, 10);
-			if (tracks[idx]) tracks[idx].mode = "showing";
-			localStorage.setItem("movieplus:subtitles", "on");
-		} else {
-			localStorage.setItem("movieplus:subtitles", "off");
-		}
-	};
+	subGroup.appendChild(subBtns);
+	bar.appendChild(subGroup);
 
-	bar.appendChild(subLabel);
-	bar.appendChild(subToggle);
-
-	// Insert controls after video container
+	// Insert after video container
 	elements.moviePlayerContainer.insertAdjacentElement("afterend", bar);
 }
 
@@ -1890,6 +1976,220 @@ async function safeJson(response) {
 		return await response.json();
 	} catch {
 		return null;
+	}
+}
+
+// ===================== SETTINGS VIEW =====================
+function initSettingsView() {
+	// ── Populate default language group ──
+	const defaultLangGroup = document.getElementById("defaultLangGroup");
+	if (defaultLangGroup) {
+		const savedLang = getSelectedTorrentLang();
+		for (const [code, info] of Object.entries(TORRENT_LANG_OPTIONS)) {
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "selector-option" + (code === savedLang ? " is-active" : "");
+			btn.dataset.value = code;
+			btn.setAttribute("aria-pressed", String(code === savedLang));
+			btn.textContent = code === "all" ? "🌐 Todos" : info.label;
+			btn.addEventListener("click", () => {
+				setSelectedTorrentLang(code);
+				defaultLangGroup.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === code);
+					b.setAttribute("aria-pressed", String(b.dataset.value === code));
+				});
+			});
+			defaultLangGroup.appendChild(btn);
+		}
+	}
+
+	// ── Theme group ──
+	const themeGroup = document.getElementById("themeGroup");
+	if (themeGroup) {
+		themeGroup.querySelectorAll(".selector-option").forEach(btn => {
+			btn.classList.toggle("is-active", btn.dataset.value === state.theme);
+			btn.setAttribute("aria-pressed", String(btn.dataset.value === state.theme));
+			btn.addEventListener("click", () => {
+				setTheme(btn.dataset.value);
+				themeGroup.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === btn.dataset.value);
+					b.setAttribute("aria-pressed", String(b.dataset.value === btn.dataset.value));
+				});
+			});
+		});
+	}
+
+	// ── Vision mode group ──
+	const visionGroup = document.getElementById("visionModeGroup");
+	if (visionGroup) {
+		const currentVision = state.colorblind ? "colorblind" : (state.highContrast ? "high-contrast" : "default");
+		visionGroup.querySelectorAll(".selector-option").forEach(btn => {
+			btn.classList.toggle("is-active", btn.dataset.value === currentVision);
+			btn.setAttribute("aria-pressed", String(btn.dataset.value === currentVision));
+			btn.addEventListener("click", () => {
+				const val = btn.dataset.value;
+				state.colorblind = val === "colorblind";
+				state.highContrast = val === "high-contrast";
+				persistValue(STORAGE_KEYS.colorblind, state.colorblind ? "1" : "0");
+				persistValue(STORAGE_KEYS.highContrast, state.highContrast ? "1" : "0");
+				applyUserPreferences();
+				visionGroup.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === val);
+					b.setAttribute("aria-pressed", String(b.dataset.value === val));
+				});
+				// Keep sidebar colorblind button in sync
+				elements.colorblindModeBtn.classList.toggle("is-active", state.colorblind);
+				elements.colorblindModeBtn.setAttribute("aria-pressed", String(state.colorblind));
+				elements.colorblindModeLabel.textContent = state.colorblind ? "Vista daltonismo activa" : "Vista daltonismo";
+			});
+		});
+	}
+
+	// ── Font family group ──
+	const fontFamilyGroup = document.getElementById("fontFamilyGroup");
+	if (fontFamilyGroup) {
+		fontFamilyGroup.querySelectorAll(".selector-option").forEach(btn => {
+			btn.classList.toggle("is-active", btn.dataset.value === state.fontFamily);
+			btn.setAttribute("aria-pressed", String(btn.dataset.value === state.fontFamily));
+			btn.addEventListener("click", () => {
+				const val = btn.dataset.value;
+				state.fontFamily = val;
+				persistValue(STORAGE_KEYS.fontFamily, val);
+				applyUserPreferences();
+				fontFamilyGroup.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === val);
+					b.setAttribute("aria-pressed", String(b.dataset.value === val));
+				});
+			});
+		});
+	}
+
+	// ── Default quality group ──
+	const defaultQualGroup = document.getElementById("defaultQualGroup");
+	if (defaultQualGroup) {
+		const savedQual = localStorage.getItem("movieplus:torrentQuality") || "all";
+		defaultQualGroup.querySelectorAll(".selector-option").forEach(btn => {
+			btn.classList.toggle("is-active", btn.dataset.value === savedQual);
+			btn.setAttribute("aria-pressed", String(btn.dataset.value === savedQual));
+			btn.addEventListener("click", () => {
+				const val = btn.dataset.value;
+				localStorage.setItem("movieplus:torrentQuality", val);
+				defaultQualGroup.querySelectorAll(".selector-option").forEach(b => {
+					b.classList.toggle("is-active", b.dataset.value === val);
+					b.setAttribute("aria-pressed", String(b.dataset.value === val));
+				});
+			});
+		});
+	}
+
+	// ── Font scale controls ──
+	const settingsFontDecBtn = document.getElementById("settingsFontDecBtn");
+	const settingsFontIncBtn = document.getElementById("settingsFontIncBtn");
+	const settingsFontVal = document.getElementById("settingsFontVal");
+	const settingsFontBar = document.getElementById("settingsFontBar");
+
+	function updateSettingsFontBar() {
+		if (!settingsFontVal || !settingsFontBar) return;
+		settingsFontVal.textContent = `${Math.round(state.fontScale * 100)}%`;
+		const pct = ((state.fontScale - FONT_SCALE_MIN) / (FONT_SCALE_MAX - FONT_SCALE_MIN)) * 100;
+		settingsFontBar.style.width = `${Math.round(pct)}%`;
+		if (settingsFontDecBtn) settingsFontDecBtn.disabled = state.fontScale <= FONT_SCALE_MIN + 0.001;
+		if (settingsFontIncBtn) settingsFontIncBtn.disabled = state.fontScale >= FONT_SCALE_MAX - 0.001;
+	}
+
+	if (settingsFontDecBtn) settingsFontDecBtn.addEventListener("click", () => { adjustFontScale(-FONT_SCALE_STEP); updateSettingsFontBar(); });
+	if (settingsFontIncBtn) settingsFontIncBtn.addEventListener("click", () => { adjustFontScale(FONT_SCALE_STEP); updateSettingsFontBar(); });
+	updateSettingsFontBar();
+
+	// ── Generic toggle binder ──
+	function bindToggle(id, stateKey, storageKey) {
+		const btn = document.getElementById(id);
+		if (!btn) return;
+		btn.setAttribute("aria-checked", String(state[stateKey]));
+		btn.addEventListener("click", () => {
+			state[stateKey] = !state[stateKey];
+			persistValue(storageKey, state[stateKey] ? "1" : "0");
+			btn.setAttribute("aria-checked", String(state[stateKey]));
+			applyUserPreferences();
+		});
+	}
+
+	bindToggle("reduceTransBtn", "reduceTrans", STORAGE_KEYS.reduceTrans);
+	bindToggle("reduceMotionBtn", "reduceMotion", STORAGE_KEYS.reduceMotion);
+	bindToggle("largeTargetsBtn", "largeTargets", STORAGE_KEYS.largeTargets);
+	bindToggle("largeCursorBtn", "largeCursor", STORAGE_KEYS.largeCursor);
+
+	// ── Subtitles default toggle ──
+	const defaultSubtitlesBtn = document.getElementById("defaultSubtitlesBtn");
+	if (defaultSubtitlesBtn) {
+		const subtitlesOn = localStorage.getItem("movieplus:subtitles") !== "off";
+		defaultSubtitlesBtn.setAttribute("aria-checked", String(subtitlesOn));
+		defaultSubtitlesBtn.addEventListener("click", () => {
+			const current = defaultSubtitlesBtn.getAttribute("aria-checked") === "true";
+			const newVal = !current;
+			defaultSubtitlesBtn.setAttribute("aria-checked", String(newVal));
+			localStorage.setItem("movieplus:subtitles", newVal ? "on" : "off");
+		});
+	}
+
+	// ── API URL field ──
+	const apiUrlInput = document.getElementById("apiUrlInput");
+	const apiUrlSaveBtn = document.getElementById("apiUrlSaveBtn");
+	const apiUrlResetBtn = document.getElementById("apiUrlResetBtn");
+	const apiUrlStatus = document.getElementById("apiUrlStatus");
+
+	if (apiUrlInput) {
+		apiUrlInput.value = localStorage.getItem(STORAGE_KEYS.apiUrl) || "";
+	}
+
+	if (apiUrlSaveBtn && apiUrlInput && apiUrlStatus) {
+		apiUrlSaveBtn.addEventListener("click", () => {
+			const val = apiUrlInput.value.trim();
+			if (val && !val.match(/^https?:\/\//)) {
+				apiUrlStatus.textContent = "⚠ La URL debe comenzar con http:// o https://";
+				apiUrlStatus.style.color = "var(--danger)";
+				return;
+			}
+			localStorage.setItem(STORAGE_KEYS.apiUrl, val);
+			apiUrlStatus.textContent = val
+				? "✓ URL guardada. Recarga la página para aplicar el cambio."
+				: "✓ URL eliminada. Se usará el servidor local al recargar.";
+			apiUrlStatus.style.color = "var(--success)";
+		});
+	}
+
+	if (apiUrlResetBtn && apiUrlInput && apiUrlStatus) {
+		apiUrlResetBtn.addEventListener("click", () => {
+			localStorage.removeItem(STORAGE_KEYS.apiUrl);
+			if (apiUrlInput) apiUrlInput.value = "";
+			apiUrlStatus.textContent = "✓ Restablecido al servidor local. Recarga la página.";
+			apiUrlStatus.style.color = "var(--success)";
+		});
+	}
+
+	// ── Reset all settings ──
+	const settingsResetBtn = document.getElementById("settingsResetBtn");
+	if (settingsResetBtn) {
+		settingsResetBtn.addEventListener("click", () => {
+			if (!confirm("¿Restablecer todas las configuraciones de accesibilidad y preferencias?")) return;
+			[
+				STORAGE_KEYS.theme, STORAGE_KEYS.fontScale, STORAGE_KEYS.colorblind,
+				STORAGE_KEYS.highContrast, STORAGE_KEYS.reduceMotion, STORAGE_KEYS.largeTargets,
+				STORAGE_KEYS.largeCursor, STORAGE_KEYS.reduceTrans, STORAGE_KEYS.fontFamily
+			].forEach(k => localStorage.removeItem(k));
+			state.theme = "dark";
+			state.fontScale = 1;
+			state.colorblind = false;
+			state.highContrast = false;
+			state.reduceMotion = false;
+			state.largeTargets = false;
+			state.largeCursor = false;
+			state.reduceTrans = false;
+			state.fontFamily = "inter";
+			applyUserPreferences();
+			showToast("Configuración restablecida.", "info");
+			location.reload();
+		});
 	}
 }
 

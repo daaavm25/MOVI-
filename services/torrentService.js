@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getCorsHeadersForRequest } = require('../config/cors');
 
 const TORRENT_DIR = '/tmp/webtorrent';
 const MAX_DISK_USAGE_MB = 2048; // 2 GB max
@@ -239,7 +240,10 @@ async function streamFile(magnet, fileIndex, res) {
 
   if (/\.(srt|vtt|ass|ssa|sub)$/i.test(file.name)) {
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const subtitleCorsHeaders = getCorsHeadersForRequest(res.req);
+    Object.entries(subtitleCorsHeaders).forEach(([key, value]) => {
+      res.setHeader(key, value);
+    });
 
     const chunks = [];
     const stream = file.createReadStream();
@@ -275,7 +279,7 @@ async function streamFile(magnet, fileIndex, res) {
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
-      'Access-Control-Allow-Origin': '*'
+      ...getCorsHeadersForRequest(res.req)
     });
 
     const stream = file.createReadStream({ start, end });
@@ -289,7 +293,7 @@ async function streamFile(magnet, fileIndex, res) {
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
-      'Access-Control-Allow-Origin': '*'
+      ...getCorsHeadersForRequest(res.req)
     });
 
     const stream = file.createReadStream();
@@ -325,6 +329,7 @@ async function streamTorrent(magnet, res) {
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
+      ...getCorsHeadersForRequest(res.req)
     });
 
     const stream = videoFile.createReadStream({ start, end });
@@ -342,6 +347,7 @@ async function streamTorrent(magnet, res) {
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
+      ...getCorsHeadersForRequest(res.req)
     });
 
     const stream = videoFile.createReadStream();

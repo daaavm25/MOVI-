@@ -1,18 +1,44 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const crypto = require('crypto');
 const path = require('path');
+const {
+    FRONTEND_URLS,
+    isAllowedOrigin,
+    hasCorsOriginsConfigured,
+    ensureCorsConfiguredForProduction
+} = require('./config/cors');
 
 const app = express();
 const PORT = Number(process.env.PORT || 8000);
+const HOST = String(process.env.HOST || '0.0.0.0');
 const sequelize = require('./config/database');
 const Watchlist = require('./models/Watchlist');
 const User = require('./models/User');
 const Session = require('./models/Session');
 const torrentRoutes = require('./routes/torrentRoutes');
+let dbReady = false;
+
+function getRequiredEnv(name) {
+    const value = String(process.env[name] || '').trim();
+    if (!value) {
+        throw new Error(`Variable de entorno requerida no configurada: ${name}`);
+    }
+    return value;
+}
+
+function requireDatabase(req, res, next) {
+    if (!dbReady) {
+        return res.status(503).json({
+            error: 'Base de datos no disponible. Intenta nuevamente en unos momentos.'
+        });
+    }
+
+    return next();
+}
 
 // Model associations
 User.hasMany(Session, { foreignKey: 'user_id' });
@@ -39,22 +65,16 @@ async function getSessionUser(req) {
 }
 // ----------------------------------
 
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-const TMDB_API_KEY = String(process.env.TMDB_API_KEY || '').trim();
+const TMDB_BASE_URL = getRequiredEnv('TMDB_BASE_URL');
+const TMDB_API_KEY = getRequiredEnv('TMDB_API_KEY');
 const DEFAULT_PROVIDER_COUNTRY = String(process.env.TMDB_PROVIDER_COUNTRY || 'MX').toUpperCase();
 const FRONTEND_DIR = path.join(__dirname, 'models', 'movie-plus-frontend');
-const FRONTEND_URLS = String(process.env.FRONTEND_URL || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
+
+ensureCorsConfiguredForProduction();
 
 app.use(cors({
     origin(origin, callback) {
-        if (!origin) {
-            return callback(null, true);
-        }
-
-        if (!FRONTEND_URLS.length || FRONTEND_URLS.includes(origin)) {
+        if (isAllowedOrigin(origin)) {
             return callback(null, true);
         }
 
@@ -76,7 +96,22 @@ app.get('/health', (req, res) => {
     res.json({
         status: "online",
         message: "Servidor Arriba",
+        database: dbReady ? 'connected' : 'disconnected',
         server_time: new Date()
+    });
+});
+
+app.get('/config', (req, res) => {
+    res.json({
+        status: 'Running in Staging',
+        node_env: process.env.NODE_ENV || 'development',
+        port: PORT,
+        host: process.env.HOST || '0.0.0.0',
+        cors_configured: hasCorsOriginsConfigured(),
+        allowed_origins_count: FRONTEND_URLS.length,
+        tmdb_base_url_configured: Boolean(TMDB_BASE_URL),
+        tmdb_api_key_configured: Boolean(TMDB_API_KEY),
+        db_connected: dbReady
     });
 });
 
@@ -371,7 +406,7 @@ const TMDB_GENRES = {
 };
 
 // ---------- Auth Endpoints ----------
-app.post('/auth/register', async (req, res) => {
+app.post('/auth/register', requireDatabase, async (req, res) => {
     try {
         const username = String(req.body.username || '').trim();
         const email = String(req.body.email || '').trim().toLowerCase();
@@ -406,7 +441,7 @@ app.post('/auth/register', async (req, res) => {
     }
 });
 
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', requireDatabase, async (req, res) => {
     try {
         const identifier = String(req.body.username || req.body.email || '').trim();
         const password = String(req.body.password || '');
@@ -437,7 +472,7 @@ app.post('/auth/login', async (req, res) => {
     }
 });
 
-app.post('/auth/logout', async (req, res) => {
+app.post('/auth/logout', requireDatabase, async (req, res) => {
     try {
         const token = req.headers['x-auth-token'];
         if (token) {
@@ -449,7 +484,7 @@ app.post('/auth/logout', async (req, res) => {
     }
 });
 
-app.get('/auth/me', async (req, res) => {
+app.get('/auth/me', requireDatabase, async (req, res) => {
     try {
         const user = await getSessionUser(req);
         if (!user) return res.status(401).json({ error: 'No autenticado.' });
@@ -459,16 +494,30 @@ app.get('/auth/me', async (req, res) => {
     }
 });
 
+app.use('/watchlist', requireDatabase);
+
+app.listen(PORT, HOST, () => {
+    console.log(`Servidor corriendo en puerto ${PORT}`);
+    console.log(`Servidor enlazado en host: ${HOST}`);
+    console.log(`Accede a la app en: http://localhost:${PORT}`);
+    console.log(`[ENV] NODE_ENV=${process.env.NODE_ENV || 'development'}`);
+    console.log(`[ENV] PORT configurado: ${Boolean(process.env.PORT)}`);
+    console.log(`[ENV] HOST configurado: ${Boolean(process.env.HOST)}`);
+    console.log(`[ENV] FRONTEND_URL configurado: ${hasCorsOriginsConfigured()}`);
+    console.log(`[ENV] TMDB_BASE_URL configurado: ${Boolean(TMDB_BASE_URL)}`);
+    console.log(`[ENV] TMDB_API_KEY configurado: ${Boolean(TMDB_API_KEY)}`);
+    console.log(`[ENV] JACKETT_URL configurado: ${Boolean(process.env.JACKETT_URL)}`);
+    console.log(`[ENV] JACKETT_API_KEY configurado: ${Boolean(process.env.JACKETT_API_KEY)}`);
+});
+
 sequelize.sync().then(() => {
-
-    console.log("Base de datos sincronizada");
-
-    app.listen(PORT, () => {
-        console.log(`Servidor corriendo en puerto ${PORT}`);
-        console.log(`Accede a la app en: http://localhost:${PORT}`);
-    });
-
-}).catch(err => console.error(err));
+    dbReady = true;
+    console.log('Base de datos sincronizada');
+}).catch((err) => {
+    dbReady = false;
+    console.error('No se pudo conectar/sincronizar la base de datos:', err.message);
+    console.error('La app seguirá disponible para frontend y endpoints sin DB.');
+});
 
 app.post('/watchlist', async (req, res) => {
     try {

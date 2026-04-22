@@ -1,14 +1,18 @@
 // services/jackettService.js
 const axios = require('axios');
 
-const JACKETT_URL = process.env.JACKETT_URL || 'http://localhost:9117';
-const JACKETT_API_KEY = process.env.JACKETT_API_KEY;
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-const TMDB_API_KEY = String(process.env.TMDB_API_KEY || '').trim();
-
-if (!JACKETT_API_KEY) {
-  throw new Error('JACKETT_API_KEY is not set in environment variables');
+function getRequiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(`Variable de entorno requerida no configurada: ${name}`);
+  }
+  return value;
 }
+
+const JACKETT_URL = getRequiredEnv('JACKETT_URL');
+const JACKETT_API_KEY = process.env.JACKETT_API_KEY;
+const TMDB_BASE_URL = getRequiredEnv('TMDB_BASE_URL');
+const TMDB_API_KEY = String(process.env.TMDB_API_KEY || '').trim();
 
 const LANG_SEARCH_KEYWORDS = {
   'es-lat': ['latino', 'lat'],
@@ -83,6 +87,10 @@ function generateSearchQueries(title, year, lang) {
 // ─── Main search function ────────────────────────────────────────
 
 async function searchTorrents(query, options = {}) {
+  if (!JACKETT_API_KEY) {
+    throw new Error('JACKETT_API_KEY no configurada. Define la variable para usar /api/torrent/search.');
+  }
+
   const { lang, year: yearHint, tmdbId } = options;
 
   // 1. Resolve best title via TMDB
@@ -271,144 +279,166 @@ function detectQuality(title) {
   return 'unknown';
 }
 
-async function _searchAllProviders(query) {
+// ─── Individual provider functions ───────────────────────────────
 
-  // 1. Intentar Jackett
-  try {
-    console.log('[Torrent] Buscando en Jackett...');
-    const url = `${JACKETT_URL}/api/v2.0/indexers/all/results`;
-    const response = await axios.get(url, {
-      params: {
-        Query: query,
-        apikey: JACKETT_API_KEY,
-      },
-      timeout: 10000, // 10s timeout
-    });
+const MAGNET_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://tracker.bittor.pw:1337/announce',
+  'udp://public.popcorn-tracker.org:6969/announce',
+  'udp://tracker.dler.org:6969/announce',
+  'udp://exodus.desync.com:6969',
+  'udp://open.demonii.com:1337/announce'
+];
+const TRACKERS_STR = MAGNET_TRACKERS.map(t => `&tr=${encodeURIComponent(t)}`).join('');
 
-    if (response.data && Array.isArray(response.data.Results) && response.data.Results.length > 0) {
-      console.log(`[Torrent] Jackett encontró ${response.data.Results.length} resultados`);
-      return response.data.Results.map(r => ({
-        title: r.Title,
-        seeds: r.Seeders,
-        size: r.Size,
-        magnet: r.MagnetUri,
-        link: r.Link,
-        tracker: r.Tracker,
-        provider: 'Jackett'
-      }));
-    }
-  } catch (err) {
-    console.log(`[Torrent] Jackett falló: ${err.message}`);
-    // Si Jackett falla, sigue con otros proveedores
+async function _searchJackett(query) {
+  if (!JACKETT_API_KEY) return [];
+  const url = `${JACKETT_URL}/api/v2.0/indexers/all/results`;
+  const response = await axios.get(url, {
+    params: { Query: query, apikey: JACKETT_API_KEY },
+    timeout: 10000,
+  });
+  if (response.data && Array.isArray(response.data.Results) && response.data.Results.length > 0) {
+    return response.data.Results.map(r => ({
+      title: r.Title,
+      seeds: r.Seeders,
+      size: r.Size,
+      magnet: r.MagnetUri,
+      link: r.Link,
+      tracker: r.Tracker,
+      provider: 'Jackett'
+    }));
   }
+  return [];
+}
 
-  // 2. Fallback: apibay.org (proxy público de The Pirate Bay) — acceso directo sin Cloudflare
-  try {
-    console.log('[Torrent] Buscando en apibay.org (TPB proxy)...');
-    const apibayRes = await axios.get('https://apibay.org/q.php', {
-      params: { q: query },
-      timeout: 10000
-    });
-    const apibayResults = apibayRes.data;
-    if (Array.isArray(apibayResults) && apibayResults.length > 0 && apibayResults[0].id !== '0') {
-      const trackers = [
-        'udp://tracker.opentrackr.org:1337/announce',
-        'udp://open.stealth.si:80/announce',
-        'udp://tracker.torrent.eu.org:451/announce',
-        'udp://tracker.bittor.pw:1337/announce',
-        'udp://public.popcorn-tracker.org:6969/announce',
-        'udp://tracker.dler.org:6969/announce',
-        'udp://exodus.desync.com:6969',
-        'udp://open.demonii.com:1337/announce'
-      ];
-      const trackersStr = trackers.map(t => `&tr=${encodeURIComponent(t)}`).join('');
-      const mapped = apibayResults
-        .filter(r => r.id !== '0' && parseInt(r.seeders) > 0)
-        .slice(0, 20)
-        .map(r => ({
-          title: r.name,
-          seeds: parseInt(r.seeders),
-          size: formatBytes(parseInt(r.size)),
-          magnet: `magnet:?xt=urn:btih:${r.info_hash}&dn=${encodeURIComponent(r.name)}${trackersStr}`,
-          link: `https://apibay.org/description.php?id=${r.id}`,
-          tracker: 'The Pirate Bay',
-          provider: 'The Pirate Bay'
-        }));
-      if (mapped.length > 0) {
-        console.log(`[Torrent] apibay encontró ${mapped.length} resultados`);
-        return mapped;
+async function _searchTPB(query) {
+  const apibayRes = await axios.get('https://apibay.org/q.php', {
+    params: { q: query },
+    timeout: 10000
+  });
+  const data = apibayRes.data;
+  if (!Array.isArray(data) || data.length === 0 || data[0].id === '0') return [];
+  return data
+    .filter(r => r.id !== '0' && parseInt(r.seeders) > 0)
+    .slice(0, 30)
+    .map(r => ({
+      title: r.name,
+      seeds: parseInt(r.seeders),
+      size: formatBytes(parseInt(r.size)),
+      magnet: `magnet:?xt=urn:btih:${r.info_hash}&dn=${encodeURIComponent(r.name)}${TRACKERS_STR}`,
+      link: `https://apibay.org/description.php?id=${r.id}`,
+      tracker: 'The Pirate Bay',
+      provider: 'The Pirate Bay'
+    }));
+}
+
+async function _searchTorrentSearchApi(query) {
+  if (!TorrentSearchApi) {
+    TorrentSearchApi = (await import('torrent-search-api')).default;
+    TorrentSearchApi.enableProvider('1337x');
+    TorrentSearchApi.enableProvider('ThePirateBay');
+    TorrentSearchApi.enableProvider('LimeTorrents');
+    TorrentSearchApi.enableProvider('TorrentGalaxy');
+  }
+  const results = await TorrentSearchApi.search(query, 'Movies', 20);
+  if (!results || results.length === 0) return [];
+  return results.map(r => ({
+    title: r.title,
+    seeds: r.seeds,
+    size: r.size,
+    magnet: r.magnet,
+    link: r.desc,
+    tracker: r.provider,
+    provider: r.provider
+  }));
+}
+
+async function _searchYTS(query) {
+  const YTS_DOMAINS = ['yts.mx', 'yts.torrentbay.st', 'yts.rs'];
+  for (const domain of YTS_DOMAINS) {
+    try {
+      const ytsRes = await axios.get(`https://${domain}/api/v2/list_movies.json`, {
+        params: { query_term: query, limit: 10 },
+        timeout: 8000
+      });
+      const movies = ytsRes.data?.data?.movies || [];
+      let torrents = [];
+      for (const movie of movies) {
+        if (movie.torrents && Array.isArray(movie.torrents)) {
+          for (const t of movie.torrents) {
+            const hash = t.hash || '';
+            torrents.push({
+              title: `${movie.title} (${movie.year}) [${t.quality}]`,
+              seeds: t.seeds,
+              size: t.size,
+              magnet: hash
+                ? `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(movie.title)}${TRACKERS_STR}`
+                : t.url,
+              link: t.url,
+              tracker: 'YTS',
+              provider: 'YTS'
+            });
+          }
+        }
       }
+      if (torrents.length > 0) return torrents;
+    } catch { /* try next domain */ }
+  }
+  return [];
+}
+
+// ─── Main provider orchestrator ──────────────────────────────────
+
+async function _searchAllProviders(query) {
+  let allResults = [];
+
+  // Phase 1: Search Jackett + TPB in parallel (fastest & most reliable)
+  const phase1 = await Promise.allSettled([
+    _searchJackett(query).catch(err => { console.log(`[Torrent] Jackett falló: ${err.message}`); return []; }),
+    _searchTPB(query).catch(err => { console.log(`[Torrent] TPB falló: ${err.message}`); return []; }),
+  ]);
+
+  for (const result of phase1) {
+    if (result.status === 'fulfilled' && result.value.length > 0) {
+      const src = result.value[0].provider;
+      console.log(`[Torrent] ${src} encontró ${result.value.length} resultados`);
+      allResults.push(...result.value);
     }
-    console.log('[Torrent] apibay no encontró resultados');
-  } catch (err) {
-    console.log(`[Torrent] apibay falló: ${err.message}`);
   }
 
-  // 3. Fallback: torrent-search-api con múltiples proveedores
+  // If we got results from phase 1, return them combined
+  if (allResults.length > 0) {
+    console.log(`[Torrent] Fase 1 (Jackett+TPB): ${allResults.length} resultados totales`);
+    return allResults;
+  }
+
+  // Phase 2: torrent-search-api (1337x, LimeTorrents, TorrentGalaxy)
   try {
-    console.log('[Torrent] Buscando en torrent-search-api (1337x, YTS, TPB, etc.)...');
-    if (!TorrentSearchApi) {
-      TorrentSearchApi = (await import('torrent-search-api')).default;
-      // Habilitar múltiples proveedores populares
-      TorrentSearchApi.enableProvider('1337x');
-      TorrentSearchApi.enableProvider('YTS');
-      TorrentSearchApi.enableProvider('The Pirate Bay');
-      TorrentSearchApi.enableProvider('LimeTorrents');
-      TorrentSearchApi.enableProvider('TorrentGalaxy');
-    }
-    const results = await TorrentSearchApi.search(query, 'Movies', 20);
-    console.log(`[Torrent] torrent-search-api encontró ${results ? results.length : 0} resultados`);
-    if (results && results.length > 0) {
-      return results.map(r => ({
-        title: r.title,
-        seeds: r.seeds,
-        size: r.size,
-        magnet: r.magnet,
-        link: r.desc,
-        tracker: r.provider,
-        provider: r.provider
-      }));
+    console.log('[Torrent] Fase 2: torrent-search-api (1337x, LimeTorrents, TorrentGalaxy)...');
+    const tsaResults = await _searchTorrentSearchApi(query);
+    if (tsaResults.length > 0) {
+      console.log(`[Torrent] torrent-search-api encontró ${tsaResults.length} resultados`);
+      return tsaResults;
     }
   } catch (err) {
     console.log(`[Torrent] torrent-search-api falló: ${err.message}`);
-    // Si torrent-search-api falla, sigue con YTS
   }
 
-  // 4. Fallback: YTS API pública (solo películas)
+  // Phase 3: YTS API (multiple domains)
   try {
-    console.log('[Torrent] Buscando en YTS API...');
-    const ytsRes = await axios.get(`https://yts.mx/api/v2/list_movies.json`, {
-      params: { query_term: query, limit: 10 }
-    });
-    const movies = ytsRes.data && ytsRes.data.data && ytsRes.data.data.movies ? ytsRes.data.data.movies : [];
-    // Extraer torrents de cada película
-    let torrents = [];
-    for (const movie of movies) {
-      if (movie.torrents && Array.isArray(movie.torrents)) {
-        for (const t of movie.torrents) {
-          torrents.push({
-            title: `${movie.title} (${movie.year}) [${t.quality}]`,
-            seeds: t.seeds,
-            size: t.size,
-            magnet: t.url, // YTS da url .torrent, no magnet
-            link: t.url,
-            tracker: 'YTS',
-            provider: 'YTS'
-          });
-        }
-      }
+    console.log('[Torrent] Fase 3: YTS API...');
+    const ytsResults = await _searchYTS(query);
+    if (ytsResults.length > 0) {
+      console.log(`[Torrent] YTS encontró ${ytsResults.length} resultados`);
+      return ytsResults;
     }
-    if (torrents.length > 0) {
-      console.log(`[Torrent] YTS API encontró ${torrents.length} resultados`);
-      return torrents;
-    }
-    console.log('[Torrent] YTS API no encontró resultados');
   } catch (err) {
-    console.log(`[Torrent] YTS API falló: ${err.message}`);
-    // Si YTS falla, devolver vacío
+    console.log(`[Torrent] YTS falló: ${err.message}`);
   }
 
-  // 5. Si todo falla, devolver vacío
   console.log('[Torrent] Ningún proveedor encontró resultados');
   return [];
 }
