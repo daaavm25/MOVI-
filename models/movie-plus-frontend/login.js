@@ -1,4 +1,6 @@
-const API = `${window.location.protocol}//${window.location.host}`;
+const API = window.location.port && window.location.port !== "8000"
+	? `${window.location.protocol}//${window.location.hostname}:8000`
+	: `${window.location.protocol}//${window.location.host}`;
 
 const STORAGE_KEYS = {
 	authToken: "movieplus:token",

@@ -6,7 +6,16 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "docker:build": "sh -c 'docker compose build || docker-compose build'",
+    "docker:run": "docker run --rm --env-file .env -p 8000:8000 --name movi-app movi-app:latest",
+    "docker:up": "sh -c 'docker compose up -d --build || docker-compose up -d --build'",
+    "docker:down": "sh -c 'docker compose down || docker-compose down'",
+    "docker:logs": "sh -c 'docker compose logs -f backend frontend db || docker-compose logs -f backend frontend db'",
+    "docker:pull:python": "docker pull python:3.11.5-slim-bookworm",
+    "docker:python:version": "docker run --rm python:3.11.5-slim-bookworm python3 --version",
+    "docker:image:list": "docker image ls",
+    "docker:image:rm:python": "docker rmi python:3.11.5-slim-bookworm"
   },
   "keywords": [],
   "author": "",
