@@ -378,6 +378,22 @@ ul, ol {
   background: var(--accent);
 }
 
+/* Familiar mode badge */
+.familiar-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, rgba(46,204,113,0.15), rgba(52,152,219,0.1));
+  border: 1px solid rgba(46,204,113,0.35);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2ecc71;
+  letter-spacing: 0.02em;
+}
+
 /* Sidebar footer / auth */
 .sidebar__footer {
   margin-top: auto;

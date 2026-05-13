@@ -27,7 +27,9 @@ const STORAGE_KEYS = {
 	largeTargets: "movieplus:largeTargets",
 	largeCursor: "movieplus:largeCursor",
 	reduceTrans: "movieplus:reduceTrans",
-	fontFamily: "movieplus:fontFamily"
+	fontFamily: "movieplus:fontFamily",
+	isMinor: "movieplus:isMinor",
+	isAdmin: "movieplus:isAdmin"
 };
 
 const FONT_SCALE_MIN = 0.9;
@@ -79,6 +81,8 @@ const state = {
 	authToken: null,
 	userId: null,
 	username: null,
+	is_minor: false,
+	is_admin: false,
 	activeView: "searchView",
 	activeFilter: "populares",
 	searchQuery: "",
@@ -167,6 +171,7 @@ function init() {
 	applyUserPreferences();
 	setActiveView(state.activeView, false);
 	initSettingsView();
+	initContentFilters();
 
 	elements.searchInput.value = state.searchQuery;
 	renderModalFavoriteState();
@@ -343,6 +348,8 @@ function hydrateState() {
 	state.reduceTrans = localStorage.getItem(STORAGE_KEYS.reduceTrans) === "1";
 	const savedFont = localStorage.getItem(STORAGE_KEYS.fontFamily);
 	if (savedFont) state.fontFamily = savedFont;
+	state.is_minor = localStorage.getItem(STORAGE_KEYS.isMinor) === "1";
+	state.is_admin = localStorage.getItem(STORAGE_KEYS.isAdmin) === "1";
 }
 
 function persistValue(key, value) {
@@ -1403,12 +1410,51 @@ async function buscarYMostrarTorrents(movie, resultsDiv) {
 				+ `<span>${torrent.title || 'Torrent'}</span>`
 				+ (torrent.size ? ` <span style="color:#888;font-size:0.85em">(${torrent.size})</span>` : "");
 
-			btn.onclick = () => startTorrentPlayback(torrent);
+			btn.onclick = () => openTorrentInNewWindow(torrent);
 			resultsDiv.appendChild(btn);
 		});
 	} catch (err) {
 		resultsDiv.innerHTML = "<span style='color: #e74c3c'>Error al buscar torrents.</span>";
 		elements.moviePlayerStatus.textContent = "Error de conexión al buscar torrents.";
+	}
+}
+
+// ===================== TORRENT NEW WINDOW =====================
+function openTorrentInNewWindow(torrent) {
+	if (!torrent.magnet) {
+		showToast("Este torrent no tiene magnet link disponible.", "error");
+		return;
+	}
+	const title = encodeURIComponent(torrent.title || "Torrent");
+	const magnet = encodeURIComponent(torrent.magnet);
+	const playerUrl = `player.html?magnet=${magnet}&title=${title}`;
+	const win = window.open(playerUrl, "_blank", "width=1080,height=680,noopener,noreferrer");
+	if (!win) {
+		showToast("El navegador bloqueó la nueva ventana. Permite ventanas emergentes e intenta de nuevo.", "error");
+	}
+}
+
+// ===================== CONTENT FILTERS (age/admin) =====================
+function initContentFilters() {
+	// Show/hide admin-only settings card
+	const adminCard = document.getElementById("adminApiCard");
+	if (adminCard) {
+		adminCard.hidden = !state.is_admin;
+	}
+
+	// Show familiar mode badge for minors
+	if (state.is_minor && state.logged) {
+		const sidebar = document.getElementById("sidebar");
+		if (sidebar && !document.getElementById("familiarBadge")) {
+			const badge = document.createElement("div");
+			badge.id = "familiarBadge";
+			badge.className = "familiar-badge";
+			badge.innerHTML = "<span aria-hidden='true'>🔒</span> Modo Familiar activo";
+			badge.title = "Contenido filtrado para menores de 18 años";
+			const footer = sidebar.querySelector(".sidebar__footer");
+			if (footer) sidebar.insertBefore(badge, footer);
+			else sidebar.appendChild(badge);
+		}
 	}
 }
 

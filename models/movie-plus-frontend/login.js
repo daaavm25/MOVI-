@@ -6,7 +6,9 @@ const STORAGE_KEYS = {
 	authToken: "movieplus:token",
 	userId: "movieplus:userId",
 	username: "movieplus:username",
-	logged: "movieplus:logged"
+	logged: "movieplus:logged",
+	isMinor: "movieplus:isMinor",
+	isAdmin: "movieplus:isAdmin"
 };
 
 const state = {
@@ -35,6 +37,7 @@ const elements = {
 	registerUsername: document.getElementById("registerUsername"),
 	registerEmail: document.getElementById("registerEmail"),
 	registerPassword: document.getElementById("registerPassword"),
+	registerBirthDate: document.getElementById("registerBirthDate"),
 	loginSubmitBtn: document.getElementById("loginSubmitBtn"),
 	registerSubmitBtn: document.getElementById("registerSubmitBtn"),
 	loggedPanel: document.getElementById("loggedPanel"),
@@ -156,6 +159,8 @@ function persistSession(token, user) {
 	localStorage.setItem(STORAGE_KEYS.userId, String(user.id));
 	localStorage.setItem(STORAGE_KEYS.username, user.username);
 	localStorage.setItem(STORAGE_KEYS.logged, "1");
+	localStorage.setItem(STORAGE_KEYS.isMinor, user.is_minor ? "1" : "0");
+	localStorage.setItem(STORAGE_KEYS.isAdmin, user.is_admin ? "1" : "0");
 }
 
 function clearSession() {
@@ -166,6 +171,8 @@ function clearSession() {
 	localStorage.removeItem(STORAGE_KEYS.userId);
 	localStorage.removeItem(STORAGE_KEYS.username);
 	localStorage.removeItem(STORAGE_KEYS.logged);
+	localStorage.removeItem(STORAGE_KEYS.isMinor);
+	localStorage.removeItem(STORAGE_KEYS.isAdmin);
 }
 
 async function handleLogin(event) {
@@ -217,6 +224,12 @@ async function handleRegister(event) {
 	const username = elements.registerUsername.value.trim();
 	const email = elements.registerEmail.value.trim();
 	const password = elements.registerPassword.value;
+	const birth_date = elements.registerBirthDate ? elements.registerBirthDate.value.trim() : "";
+
+	if (!birth_date) {
+		showError("La fecha de nacimiento es requerida.");
+		return;
+	}
 
 	hideError();
 	elements.registerSubmitBtn.disabled = true;
@@ -226,7 +239,7 @@ async function handleRegister(event) {
 		const registerResponse = await fetch(`${API}/auth/register`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ username, email, password })
+			body: JSON.stringify({ username, email, password, birth_date })
 		});
 		const registerPayload = await safeJson(registerResponse);
 

@@ -5,9 +5,11 @@ const { execSync } = require('child_process');
 const { getCorsHeadersForRequest } = require('../config/cors');
 
 const TORRENT_DIR = '/tmp/webtorrent';
-const MAX_DISK_USAGE_MB = 2048; // 2 GB max
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // check every 5 min
-const MAX_TORRENT_AGE_MS = 30 * 60 * 1000; // remove files older than 30 min
+const MAX_DISK_USAGE_MB = 512;                    // 512 MB max en disco
+const CLEANUP_INTERVAL_MS = 60 * 1000;            // revisar cada 1 min
+const MAX_TORRENT_AGE_MS = 5 * 60 * 1000;         // eliminar archivos > 5 min inactivos
+// Cache de torrents activos: infoHash → torrent
+const activeTorrents = new Map();
 
 // ─── Automatic disk cleanup ─────────────────────────────────────
 
@@ -37,6 +39,7 @@ function cleanupTorrentDir() {
           if (hash && activeTorrents.has(hash)) continue;
           fs.rmSync(full, { recursive: true, force: true });
           removed++;
+          if (hash) destroyTorrent(hash);
         }
       } catch { /* skip */ }
     }
@@ -59,6 +62,7 @@ function cleanupTorrentDir() {
         if (hash && activeTorrents.has(hash)) continue;
         fs.rmSync(item.full, { recursive: true, force: true });
         removed++;
+        if (hash) destroyTorrent(hash);
       }
     }
 
@@ -76,6 +80,14 @@ function findHashForPath(dirName) {
     if (torrent.name === dirName) return hash;
   }
   return null;
+}
+
+function destroyTorrent(hash) {
+  const torrent = activeTorrents.get(hash);
+  if (torrent && !torrent.destroyed) {
+    try { torrent.destroy(); } catch (_) {}
+  }
+  activeTorrents.delete(hash);
 }
 
 // Run cleanup on startup and periodically
@@ -100,8 +112,6 @@ const getMime = async () => {
 };
 
 let client;
-// Cache de torrents activos: infoHash → torrent
-const activeTorrents = new Map();
 
 async function getClient() {
   if (!client) {
@@ -288,7 +298,7 @@ async function streamFile(magnet, fileIndex, res) {
       if (!res.headersSent) res.status(500).end();
       else res.end();
     });
-    res.on('close', () => stream.destroy());
+    res.on('close', () => { stream.destroy(); setImmediate(cleanupTorrentDir); });
   } else {
     res.writeHead(200, {
       'Content-Length': fileSize,
@@ -302,7 +312,7 @@ async function streamFile(magnet, fileIndex, res) {
       if (!res.headersSent) res.status(500).end();
       else res.end();
     });
-    res.on('close', () => stream.destroy());
+    res.on('close', () => { stream.destroy(); setImmediate(cleanupTorrentDir); });
   }
 }
 
@@ -360,6 +370,7 @@ async function streamTorrent(magnet, res) {
     res.on('close', () => {
       stream.destroy();
       console.log(`[WebTorrent] Conexión cerrada por cliente`);
+      setImmediate(cleanupTorrentDir);
     });
   }
 }

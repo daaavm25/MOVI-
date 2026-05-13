@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Movie + | Reproductor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0b0d12;
+    color: #e4edf3;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  .player-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: rgba(15,18,26,0.96);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .player-header__brand {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    background: linear-gradient(135deg, #e6b800, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    white-space: nowrap;
+  }
+  .player-header__sep { opacity: 0.25; }
+  .player-header__title {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #c8d6e0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .player-header__close {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: #c8d6e0;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 5px 12px;
+    transition: background 0.18s;
+    flex-shrink: 0;
+  }
+  .player-header__close:hover { background: rgba(255,255,255,0.12); }
+
+  /* ── Main player area ── */
+  .player-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 24px;
+    gap: 16px;
+  }
+
+  .video-wrap {
+    width: 100%;
+    max-width: 960px;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 8px 48px rgba(0,0,0,0.7);
+  }
+  .video-wrap video {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* ── Status bar ── */
+  .player-status {
+    text-align: center;
+    font-size: 0.88rem;
+    color: #8a9ab0;
+    min-height: 22px;
+    padding: 0 8px;
+  }
+  .player-status.loading { color: #e6b800; }
+  .player-status.error   { color: #e74c3c; }
+  .player-status.success { color: #2ecc71; }
+
+  /* ── Loading spinner overlay ── */
+  .loader-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s;
+  }
+  .loader-overlay.hidden { opacity: 0; pointer-events: none; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid rgba(230,184,0,0.2);
+    border-top-color: #e6b800;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text {
+    font-size: 0.9rem;
+    color: #c8d6e0;
+    font-weight: 500;
+    text-align: center;
+    padding: 0 16px;
+  }
+
+  /* ── File selector ── */
+  .file-controls {
+    width: 100%;
+    max-width: 960px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .file-controls__label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #8a9ab0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .file-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .file-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: #c8d6e0;
+    cursor: pointer;
+    font-size: 0.82rem;
+    padding: 6px 12px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .file-btn:hover { background: rgba(255,255,255,0.1); }
+  .file-btn.active {
+    background: rgba(230,184,0,0.15);
+    border-color: rgba(230,184,0,0.5);
+    color: #e6b800;
+    font-weight: 600;
+  }
+
+  /* ── Subtitle selector ── */
+  .sub-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sub-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #8a9ab0;
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 5px 10px;
+    transition: background 0.15s;
+  }
+  .sub-btn:hover { background: rgba(255,255,255,0.09); }
+  .sub-btn.active {
+    background: rgba(52,152,219,0.15);
+    border-color: rgba(52,152,219,0.4);
+    color: #3498db;
+  }
+  .sub-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<header class="player-header">
+  <span class="player-header__brand">🎬 Movie +</span>
+  <span class="player-header__sep">|</span>
+  <span id="headerTitle" class="player-header__title">Cargando...</span>
+  <button class="player-header__close" onclick="window.close()">✕ Cerrar</button>
+</header>
+
+<main class="player-main">
+  <div class="video-wrap">
+    <video id="playerVideo" controls autoplay preload="auto" title="Reproductor de película"></video>
+    <div id="loaderOverlay" class="loader-overlay">
+      <div class="spinner"></div>
+      <p id="loaderText" class="loader-text">Conectando al torrent...</p>
+    </div>
+  </div>
+
+  <p id="playerStatus" class="player-status loading">Obteniendo información del torrent...</p>
+
+  <div id="fileControls" class="file-controls" hidden>
+    <p class="file-controls__label">📺 Archivos de video</p>
+    <div id="fileList" class="file-list"></div>
+  </div>
+
+  <div id="subControls" class="file-controls" hidden>
+    <p class="file-controls__label">💬 Subtítulos</p>
+    <div id="subList" class="sub-list"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  function getApiBase() {
+    const custom = localStorage.getItem("movieplus:apiUrl");
+    if (custom && custom.trim()) return custom.trim().replace(/\/$/, "");
+    if (window.location.port && window.location.port !== "8000")
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    return `${window.location.protocol}//${window.location.host}`;
+  }
+
+  const API = getApiBase();
+  const params = new URLSearchParams(window.location.search);
+  const magnet = params.get("magnet") || "";
+  const title = params.get("title") || "Torrent";
+
+  const video       = document.getElementById("playerVideo");
+  const headerTitle = document.getElementById("headerTitle");
+  const loaderOverlay = document.getElementById("loaderOverlay");
+  const loaderText  = document.getElementById("loaderText");
+  const playerStatus = document.getElementById("playerStatus");
+  const fileControls = document.getElementById("fileControls");
+  const fileList    = document.getElementById("fileList");
+  const subControls = document.getElementById("subControls");
+  const subList     = document.getElementById("subList");
+
+  document.title = `Movie + | ${title}`;
+  headerTitle.textContent = decodeURIComponent(title);
+
+  function setStatus(msg, type) {
+    playerStatus.textContent = msg;
+    playerStatus.className = "player-status" + (type ? ` ${type}` : "");
+  }
+
+  function hideLoader() {
+    loaderOverlay.classList.add("hidden");
+  }
+
+  function buildFileButtons(videos, currentIndex) {
+    fileList.innerHTML = "";
+    if (videos.length < 2) { fileControls.hidden = true; return; }
+    fileControls.hidden = false;
+    videos.forEach(v => {
+      const btn = document.createElement("button");
+      btn.className = "file-btn" + (v.index === currentIndex ? " active" : "");
+      const short = v.name.replace(/^.*[\\/]/, "").replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
+      btn.textContent = `${short.slice(0, 24)}${short.length > 24 ? "…" : ""} · ${v.size}`;
+      btn.addEventListener("click", () => {
+        video.src = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${v.index}`;
+        video.load(); video.play();
+        fileList.querySelectorAll(".file-btn").forEach(b => b.classList.toggle("active", b === btn));
+      });
+      fileList.appendChild(btn);
+    });
+  }
+
+  function buildSubtitleButtons(subtitles) {
+    subList.innerHTML = "";
+    const offBtn = document.createElement("button");
+    offBtn.className = "sub-btn";
+    offBtn.innerHTML = "🚫 Desactivados";
+    offBtn.addEventListener("click", () => {
+      const tracks = video.textTracks;
+      for (let i = 0; i < tracks.length; i++) tracks[i].mode = "hidden";
+      subList.querySelectorAll(".sub-btn").forEach(b => b.classList.toggle("active", b === offBtn));
+    });
+    subList.appendChild(offBtn);
+
+    if (!subtitles || subtitles.length === 0) {
+      const noSub = document.createElement("button");
+      noSub.className = "sub-btn";
+      noSub.disabled = true;
+      noSub.textContent = "No disponibles";
+      subList.appendChild(noSub);
+    } else {
+      subtitles.forEach((sub, i) => {
+        const btn = document.createElement("button");
+        btn.className = "sub-btn" + (i === 0 ? " active" : "");
+        btn.innerHTML = `💬 ${sub.label || `Sub ${i + 1}`}`;
+        btn.addEventListener("click", () => {
+          const tracks = video.textTracks;
+          for (let j = 0; j < tracks.length; j++) tracks[j].mode = "hidden";
+          if (tracks[i]) tracks[i].mode = "showing";
+          subList.querySelectorAll(".sub-btn").forEach(b => b.classList.toggle("active", b === btn));
+        });
+        subList.appendChild(btn);
+      });
+    }
+    subControls.hidden = false;
+  }
+
+  function pickBestVideo(videos) {
+    if (!videos || videos.length === 0) return null;
+    const pref = localStorage.getItem("movieplus:torrentQuality") || "all";
+    if (pref === "all") return videos[0];
+    const map = { "4k": 4, "1080p": 3, "720p": 2, "480p": 1 };
+    const prefLevel = map[pref] || 3;
+    const ranked = videos.map(v => {
+      const n = v.name.toLowerCase();
+      let q = 0;
+      if (/2160p|4k|uhd/.test(n)) q = 4;
+      else if (/1080p/.test(n)) q = 3;
+      else if (/720p/.test(n)) q = 2;
+      else if (/480p/.test(n)) q = 1;
+      return { ...v, q };
+    });
+    const exact = ranked.find(v => v.q === prefLevel);
+    if (exact) return exact;
+    const sorted = ranked.filter(v => v.q > 0).sort((a, b) => Math.abs(a.q - prefLevel) - Math.abs(b.q - prefLevel));
+    return sorted[0] || videos[0];
+  }
+
+  async function startPlayback() {
+    if (!magnet) {
+      setStatus("No se recibió el enlace magnet.", "error");
+      hideLoader();
+      return;
+    }
+
+    try {
+      loaderText.textContent = "Obteniendo lista de archivos...";
+      const infoRes = await fetch(`${API}/api/torrent/info?magnet=${encodeURIComponent(magnet)}`);
+
+      if (!infoRes.ok) {
+        // Fallback: use stream endpoint
+        loaderText.textContent = "Conectando al torrent...";
+        video.src = `${API}/api/torrent/stream?magnet=${encodeURIComponent(magnet)}`;
+        video.load();
+        video.onloadeddata = () => { hideLoader(); setStatus("Reproduciendo.", "success"); };
+        video.onerror = () => { hideLoader(); setStatus("Error al reproducir. Prueba otro torrent.", "error"); };
+        return;
+      }
+
+      const info = await infoRes.json();
+
+      if (!info.videos || info.videos.length === 0) {
+        hideLoader();
+        setStatus(`Sin archivos de video en este torrent: "${info.name}". Prueba otro.`, "error");
+        return;
+      }
+
+      const selected = pickBestVideo(info.videos);
+      const videoUrl = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${selected.index}`;
+
+      // Add subtitle tracks
+      if (info.subtitles && info.subtitles.length > 0) {
+        info.subtitles.forEach((sub, i) => {
+          const track = document.createElement("track");
+          track.kind = "subtitles";
+          track.label = sub.label || `Subtítulo ${i + 1}`;
+          track.srclang = sub.lang || "und";
+          track.src = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${sub.index}`;
+          if (i === 0) track.default = true;
+          video.appendChild(track);
+        });
+      }
+
+      video.src = videoUrl;
+      video.load();
+
+      buildFileButtons(info.videos, selected.index);
+      buildSubtitleButtons(info.subtitles);
+
+      video.onloadeddata = () => {
+        hideLoader();
+        setStatus(`Reproduciendo: ${title}`, "success");
+      };
+      video.onerror = () => {
+        hideLoader();
+        setStatus("Error al reproducir. El torrent puede tener pocos seeds.", "error");
+      };
+
+      loaderText.textContent = `Conectando... "${selected.name.replace(/^.*[\\/]/, "")}"`;
+      setStatus("Conectando al stream...", "loading");
+
+    } catch (err) {
+      hideLoader();
+      setStatus("Error de conexión: " + (err.message || "desconocido"), "error");
+    }
+  }
+
+  startPlayback();
+})();
+</script>
+</body>
+</html>

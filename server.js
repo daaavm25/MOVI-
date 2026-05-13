@@ -54,7 +54,7 @@ async function getSessionUser(req) {
     if (!token) return null;
     const session = await Session.findOne({
         where: { token },
-        include: [{ model: User, attributes: ['id', 'username', 'email'] }]
+        include: [{ model: User, attributes: ['id', 'username', 'email', 'birth_date'] }]
     });
     if (!session) return null;
     if (new Date() > session.expires_at) {
@@ -69,6 +69,26 @@ const TMDB_BASE_URL = getRequiredEnv('TMDB_BASE_URL');
 const TMDB_API_KEY = getRequiredEnv('TMDB_API_KEY');
 const DEFAULT_PROVIDER_COUNTRY = String(process.env.TMDB_PROVIDER_COUNTRY || 'MX').toUpperCase();
 const FRONTEND_DIR = path.join(__dirname, 'models', 'movie-plus-frontend');
+const ADMIN_USERNAMES = String(process.env.ADMIN_USERNAMES || '')
+    .split(',')
+    .map(u => u.trim().toLowerCase())
+    .filter(Boolean);
+
+function isAdminUser(username) {
+    if (!username || !ADMIN_USERNAMES.length) return false;
+    return ADMIN_USERNAMES.includes(String(username).toLowerCase());
+}
+
+function isMinorUser(birth_date) {
+    if (!birth_date) return false;
+    const dob = new Date(birth_date);
+    if (isNaN(dob.getTime())) return false;
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+    return age < 18;
+}
 
 ensureCorsConfiguredForProduction();
 
@@ -281,7 +301,7 @@ app.get('/peliculas/populares', async (req, res) => {
     try {
         const page = Math.max(1, Number(req.query.page || 1));
         const response = await axios.get(`${TMDB_BASE_URL}/movie/popular`, {
-            params: { api_key: getTmdbApiKey(), language: 'es-MX', page }
+            params: { api_key: getTmdbApiKey(), language: 'es-MX', page, include_adult: false }
         });
         const results = (response.data?.results || []).slice(0, 20).map(mapMovieFromTmdb).filter(m => m.id && m.titulo);
         return res.json({ results, total: results.length });
@@ -300,7 +320,7 @@ app.get('/peliculas/genero/:genero', async (req, res) => {
         }
         const sortBy = req.query.sort === 'menos_populares' ? 'popularity.asc' : 'popularity.desc';
         const response = await axios.get(`${TMDB_BASE_URL}/discover/movie`, {
-            params: { api_key: getTmdbApiKey(), language: 'es-MX', with_genres: genreId, sort_by: sortBy, page: 1 }
+            params: { api_key: getTmdbApiKey(), language: 'es-MX', with_genres: genreId, sort_by: sortBy, page: 1, include_adult: false }
         });
         const results = (response.data?.results || []).slice(0, 20).map(mapMovieFromTmdb).filter(m => m.id && m.titulo);
         return res.json({ results, total: results.length, genre: key, genreId });
@@ -431,11 +451,27 @@ app.post('/auth/register', requireDatabase, async (req, res) => {
             return res.status(409).json({ error: 'Ese email ya está registrado.' });
         }
 
+        const birth_date_raw = String(req.body.birth_date || '').trim();
+        let birth_date = null;
+        if (birth_date_raw) {
+            const parsed = new Date(birth_date_raw);
+            if (isNaN(parsed.getTime()) || parsed > new Date()) {
+                return res.status(400).json({ error: 'Fecha de nacimiento inválida.' });
+            }
+            birth_date = birth_date_raw;
+        }
+
         const salt = User.generateSalt();
         const password_hash = User.hashPassword(password, salt);
-        const user = await User.create({ username, email, password_hash, salt });
+        const user = await User.create({ username, email, password_hash, salt, birth_date });
 
-        return res.status(201).json({ id: user.id, username: user.username, email: user.email });
+        return res.status(201).json({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            is_minor: isMinorUser(user.birth_date),
+            is_admin: isAdminUser(user.username)
+        });
     } catch (error) {
         return res.status(500).json({ error: 'Error al registrar usuario.', details: error.message });
     }
@@ -466,7 +502,16 @@ app.post('/auth/login', requireDatabase, async (req, res) => {
         const expires_at = new Date(Date.now() + 7 * 24 * 3600 * 1000); // 7 days
         await Session.create({ token, user_id: user.id, expires_at });
 
-        return res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
+        return res.json({
+            token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                is_minor: isMinorUser(user.birth_date),
+                is_admin: isAdminUser(user.username)
+            }
+        });
     } catch (error) {
         return res.status(500).json({ error: 'Error al iniciar sesión.', details: error.message });
     }
@@ -488,7 +533,13 @@ app.get('/auth/me', requireDatabase, async (req, res) => {
     try {
         const user = await getSessionUser(req);
         if (!user) return res.status(401).json({ error: 'No autenticado.' });
-        return res.json({ id: user.id, username: user.username, email: user.email });
+        return res.json({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            is_minor: isMinorUser(user.birth_date),
+            is_admin: isAdminUser(user.username)
+        });
     } catch (error) {
         return res.status(500).json({ error: 'Error al verificar sesión.' });
     }
@@ -510,7 +561,7 @@ app.listen(PORT, HOST, () => {
     console.log(`[ENV] JACKETT_API_KEY configurado: ${Boolean(process.env.JACKETT_API_KEY)}`);
 });
 
-sequelize.sync().then(() => {
+sequelize.sync({ alter: true }).then(() => {
     dbReady = true;
     console.log('Base de datos sincronizada');
 }).catch((err) => {

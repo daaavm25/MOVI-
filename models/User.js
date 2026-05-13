@@ -22,6 +22,10 @@ const User = sequelize.define('User', {
     salt: {
         type: DataTypes.STRING(32),
         allowNull: false
+    },
+    birth_date: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
     }
 }, { timestamps: true });
 
