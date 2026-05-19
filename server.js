@@ -461,9 +461,8 @@ app.post('/auth/register', requireDatabase, async (req, res) => {
             birth_date = birth_date_raw;
         }
 
-        const salt = User.generateSalt();
-        const password_hash = User.hashPassword(password, salt);
-        const user = await User.create({ username, email, password_hash, salt, birth_date });
+        const password_hash = await User.hashPassword(password);
+        const user = await User.create({ username, email, password_hash, birth_date });
 
         return res.status(201).json({
             id: user.id,
@@ -493,8 +492,8 @@ app.post('/auth/login', requireDatabase, async (req, res) => {
             return res.status(401).json({ error: 'Credenciales incorrectas.' });
         }
 
-        const hashed = User.hashPassword(password, user.salt);
-        if (hashed !== user.password_hash) {
+        const valid = await User.verifyPassword(password, user.password_hash);
+        if (!valid) {
             return res.status(401).json({ error: 'Credenciales incorrectas.' });
         }
 

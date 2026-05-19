@@ -1,6 +1,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
-const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+
+const SALT_ROUNDS = 12;
 
 const User = sequelize.define('User', {
     username: {
@@ -16,12 +18,12 @@ const User = sequelize.define('User', {
         validate: { isEmail: true }
     },
     password_hash: {
-        type: DataTypes.STRING(128),
+        type: DataTypes.STRING(255),
         allowNull: false
     },
     salt: {
         type: DataTypes.STRING(32),
-        allowNull: false
+        allowNull: true
     },
     birth_date: {
         type: DataTypes.DATEONLY,
@@ -29,12 +31,14 @@ const User = sequelize.define('User', {
     }
 }, { timestamps: true });
 
-User.hashPassword = function (plain, salt) {
-    return crypto.createHmac('sha256', salt).update(plain).digest('hex');
+// Async — returns bcrypt hash (salt embedded)
+User.hashPassword = async function (plain) {
+    return bcrypt.hash(plain, SALT_ROUNDS);
 };
 
-User.generateSalt = function () {
-    return crypto.randomBytes(16).toString('hex');
+// Async — safe timing-safe comparison
+User.verifyPassword = async function (plain, hash) {
+    return bcrypt.compare(plain, hash);
 };
 
 module.exports = User;

@@ -7,6 +7,12 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+# Permisos: corre como usuario no-root (seguridad en producción)
+RUN addgroup --system appgroup && \
+    adduser  --system --ingroup appgroup appuser && \
+    chown -R appuser:appgroup /app
+USER appuser
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8000
