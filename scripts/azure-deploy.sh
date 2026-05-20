@@ -22,9 +22,9 @@ step()    { echo -e "\n${BOLD}${BLUE}▶ $*${NC}"; }
 # ── Configuración ────────────────────────────────────────────────────────────
 RESOURCE_GROUP="${RESOURCE_GROUP:-movi-rg}"
 VM_NAME="${VM_NAME:-movi-vm}"
-LOCATION="${LOCATION:-brazilsouth}"      # Región más cercana a Argentina (São Paulo)
-# Standard_B2s = 2 vCPU, 4 GB RAM, ~$30/mes → ~3 meses con $100 de crédito
-VM_SIZE="${VM_SIZE:-Standard_B2s}"
+LOCATION="${LOCATION:-westus}"           # West US (California) — región permitida con disponibilidad garantizada
+# Standard_DS1_v2 = 1 vCPU, 3.5 GB RAM, ~$35/mes — tamaño default Azure CLI, siempre disponible
+VM_SIZE="${VM_SIZE:-Standard_DS1_v2}"
 OS_IMAGE="Canonical:ubuntu-24_04-lts:server:latest"
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -126,29 +126,92 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-step "PASO 4 — Crear grupo de recursos en $LOCATION"
+step "PASO 4+5 — Crear VM (búsqueda automática de región/tamaño disponible)"
 # ════════════════════════════════════════════════════════════════════════════
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output table
-success "Grupo de recursos: $RESOURCE_GROUP"
 
-# ════════════════════════════════════════════════════════════════════════════
-step "PASO 5 — Crear VM Ubuntu 24.04 ($VM_SIZE)"
-# ════════════════════════════════════════════════════════════════════════════
-info "Esto puede tardar 2-3 minutos..."
-az vm create \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --image "$OS_IMAGE" \
-    --size "$VM_SIZE" \
-    --admin-username "$ADMIN_USER" \
-    --ssh-key-values "${SSH_KEY_FILE}.pub" \
-    --os-disk-size-gb 30 \
-    --public-ip-sku Standard \
-    --output table
+# Todas las regiones permitidas por la política de Azure for Students,
+# con los tamaños más comunes de propósito general (D-series) y algunas alternativas.
+declare -a COMBOS=(
+    "southcentralus|Standard_D2s_v3"
+    "southcentralus|Standard_D2_v3"
+    "southcentralus|Standard_D2s_v5"
+    "southcentralus|Standard_D2_v5"
+    "centralus|Standard_D2s_v3"
+    "centralus|Standard_D2_v3"
+    "centralus|Standard_D2s_v5"
+    "northcentralus|Standard_D2s_v3"
+    "northcentralus|Standard_D2s_v5"
+    "westus|Standard_D2s_v3"
+    "westus|Standard_D2_v3"
+    "westus|Standard_D2s_v5"
+    "eastus|Standard_D2s_v3"
+    "eastus|Standard_D2_v3"
+    "eastus|Standard_D2s_v5"
+    "southcentralus|Standard_D4s_v3"
+    "centralus|Standard_D4s_v3"
+    # Europa — fallback si la política de Azure for Students lo permite
+    "westeurope|Standard_D2s_v3"
+    "westeurope|Standard_D2_v3"
+    "northeurope|Standard_D2s_v3"
+    "northeurope|Standard_D2_v3"
+    "uksouth|Standard_D2s_v3"
+    "francecentral|Standard_D2s_v3"
+    "germanywestcentral|Standard_D2s_v3"
+)
+
+VM_IP=""
+ACTIVE_LOCATION=""
+
+for combo in "${COMBOS[@]}"; do
+    try_loc="${combo%|*}"
+    try_size="${combo#*|}"
+    info "Probando: $try_loc | $try_size ..."
+
+    # Si cambiamos de región, limpiar resource group anterior y crear nuevo
+    if [ "$try_loc" != "$ACTIVE_LOCATION" ]; then
+        az group delete --name "$RESOURCE_GROUP" --yes 2>/dev/null || true
+        az group create --name "$RESOURCE_GROUP" --location "$try_loc" --output none 2>/dev/null
+        ACTIVE_LOCATION="$try_loc"
+    else
+        # Misma región: solo borrar la VM y sus recursos si quedaron a medias
+        az vm delete   -g "$RESOURCE_GROUP" -n "$VM_NAME" --yes 2>/dev/null || true
+        az network nic  delete -g "$RESOURCE_GROUP" -n "${VM_NAME}VMNic"  2>/dev/null || true
+        az network public-ip delete -g "$RESOURCE_GROUP" -n "${VM_NAME}PublicIP" 2>/dev/null || true
+    fi
+
+    if az vm create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name           "$VM_NAME" \
+            --image          "$OS_IMAGE" \
+            --size           "$try_size" \
+            --admin-username "$ADMIN_USER" \
+            --ssh-key-values "${SSH_KEY_FILE}.pub" \
+            --os-disk-size-gb 30 \
+            --public-ip-sku Standard \
+            --only-show-errors \
+            --output none 2>/dev/null; then
+
+        LOCATION="$try_loc"
+        VM_SIZE="$try_size"
+        success "VM creada en $LOCATION con tamaño $VM_SIZE"
+        break
+    else
+        warn "Sin capacidad: $try_loc | $try_size — probando siguiente..."
+    fi
+done
+
+# Verificar que la VM existe
+if ! az vm show -g "$RESOURCE_GROUP" -n "$VM_NAME" &>/dev/null; then
+    error "No se pudo crear la VM en ninguna combinación disponible. Intenta de nuevo en unas horas."
+fi
 
 # Obtener IP pública
 VM_IP=$(az vm show -d -g "$RESOURCE_GROUP" -n "$VM_NAME" --query publicIps -o tsv)
-success "VM creada — IP pública: $VM_IP"
+success "VM disponible — IP pública: $VM_IP"
+
+# Actualizar FRONTEND_URL en el .env local con la IP real
+sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=http://$VM_IP:8000|g" "$PROJECT_DIR/.env"
+success "FRONTEND_URL actualizado en .env local: http://$VM_IP:8000"
 
 # ════════════════════════════════════════════════════════════════════════════
 step "PASO 6 — Abrir puertos en el firewall de Azure (NSG)"
