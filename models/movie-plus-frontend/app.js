@@ -1366,6 +1366,7 @@ function renderTorrentSearch(movie) {
 				b.classList.toggle("is-active", b.dataset.value === q.value);
 				b.setAttribute("aria-pressed", String(b.dataset.value === q.value));
 			});
+			reRenderTorrentResults();
 		});
 		qualGroup.appendChild(btn);
 	});
@@ -1405,6 +1406,7 @@ function renderTorrentSearch(movie) {
 				b.classList.toggle("is-active", b.dataset.value === opt.value);
 				b.setAttribute("aria-pressed", String(b.dataset.value === opt.value));
 			});
+			reRenderTorrentResults();
 		});
 		compatGroup.appendChild(btn);
 	});
@@ -1415,6 +1417,12 @@ function renderTorrentSearch(movie) {
 	compatHint.className = "torrent-compat-hint";
 	compatHint.innerHTML = '🟢 MP4/WebM = reproducción directa &nbsp;|&nbsp; 🟡 MKV = depende del codec &nbsp;|&nbsp; 🔴 AVI/otros = baja compatibilidad';
 
+	// ── Cache + live re-render ──
+	let cachedRawResults = [];
+	function reRenderTorrentResults() {
+		if (cachedRawResults.length) renderTorrentResultsList(cachedRawResults, torrentResultsDiv);
+	}
+
 	const torrentBtn = document.createElement("button");
 	torrentBtn.type = "button";
 	torrentBtn.className = "btn btn-primary torrent-search-btn";
@@ -1424,7 +1432,9 @@ function renderTorrentSearch(movie) {
 	torrentResultsDiv.id = "torrentResultsDiv";
 	torrentResultsDiv.className = "torrent-results";
 
-	torrentBtn.onclick = () => buscarYMostrarTorrents(movie, torrentResultsDiv);
+	torrentBtn.onclick = async () => {
+		cachedRawResults = await buscarYMostrarTorrents(movie, torrentResultsDiv);
+	};
 
 	elements.moviePlayerLinks.appendChild(langRow);
 	elements.moviePlayerLinks.appendChild(qualRow);
@@ -1454,69 +1464,81 @@ async function buscarYMostrarTorrents(movie, resultsDiv) {
 		if (!data.results || data.results.length === 0) {
 			resultsDiv.innerHTML = "<span style='color: #e74c3c'>No se encontraron torrents para este título.</span>";
 			elements.moviePlayerStatus.textContent = "No se encontraron torrents.";
-			return;
+			return [];
 		}
 
-		let filtered = data.results;
-
-		// Quality filter from saved preference
-		const qualPref = localStorage.getItem("movieplus:torrentQuality") || "all";
-		if (qualPref !== "all") {
-			const qualFiltered = filtered.filter(r => r.detectedQuality === qualPref);
-			if (qualFiltered.length > 0) filtered = qualFiltered;
-		}
-
-		// Compatibility format filter
-		const compatPref = localStorage.getItem("movieplus:torrentCompat") || "all";
-		if (compatPref !== "all") {
-			const compatFiltered = filtered.filter(r => getTorrentExtInfo(r.title).level === compatPref);
-			if (compatFiltered.length > 0) filtered = compatFiltered;
-		}
-
-		// Sort by seeds
-		filtered.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
-
-		resultsDiv.innerHTML = "";
-
-		// Quality tag colors
-		const QUALITY_COLORS = {
-			"4k": "#e6b800", "1080p": "#2ecc71", "720p": "#3498db",
-			"480p": "#95a5a6", "cam": "#e74c3c", "unknown": "#666"
-		};
-		const LANG_LABELS = {
-			"en": "EN", "es-lat": "ES-LAT", "es-es": "ES-ES", "pt-br": "PT-BR",
-			"fr": "FR", "de": "DE", "it": "IT", "ja": "JA", "ko": "KO",
-			"zh": "ZH", "hi": "HI", "ru": "RU", "dual": "DUAL"
-		};
-
-		filtered.slice(0, 20).forEach((torrent) => {
-			const btn = document.createElement("button");
-			btn.type = "button";
-			btn.className = "movie-link-pill torrent-result-btn";
-
-			const qualColor = QUALITY_COLORS[torrent.detectedQuality] || "#666";
-			const qualLabel = (torrent.detectedQuality || "?").toUpperCase();
-			const langLabel = LANG_LABELS[torrent.detectedLang] || torrent.detectedLang?.toUpperCase() || "";
-			const seedsText = torrent.seeds ? `${torrent.seeds}` : "0";
-			const extInfo = getTorrentExtInfo(torrent.title);
-			const extBadge = extInfo.ext
-				? `<span style="display:inline-block;background:${extInfo.color};color:${extInfo.textColor};border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px" title="${extInfo.title}">${extInfo.ext.toUpperCase()}</span>`
-				: "";
-
-			btn.innerHTML = `<span style="display:inline-block;background:${qualColor};color:#000;border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px">${qualLabel}</span>`
-				+ (langLabel ? `<span style="display:inline-block;background:#555;color:#fff;border-radius:3px;padding:1px 5px;font-size:0.75em;margin-right:4px">${langLabel}</span>` : "")
-				+ extBadge
-				+ `<span style="color:#2ecc71;font-size:0.8em;margin-right:6px">⬆${seedsText}</span>`
-				+ `<span>${torrent.title || 'Torrent'}</span>`
-				+ (torrent.size ? ` <span style="color:#888;font-size:0.85em">(${torrent.size})</span>` : "");
-
-			btn.onclick = () => openTorrentInNewWindow(torrent);
-			resultsDiv.appendChild(btn);
-		});
+		renderTorrentResultsList(data.results, resultsDiv);
+		return data.results;
 	} catch (err) {
 		resultsDiv.innerHTML = "<span style='color: #e74c3c'>Error al buscar torrents.</span>";
 		elements.moviePlayerStatus.textContent = "Error de conexión al buscar torrents.";
+		return [];
 	}
+}
+
+function renderTorrentResultsList(rawResults, resultsDiv) {
+	const COMPAT_NAMES = { high: "MP4/WebM", medium: "MKV", low: "AVI/otros" };
+	const QUALITY_COLORS = {
+		"4k": "#e6b800", "1080p": "#2ecc71", "720p": "#3498db",
+		"480p": "#95a5a6", "cam": "#e74c3c", "unknown": "#666"
+	};
+	const LANG_LABELS = {
+		"en": "EN", "es-lat": "ES-LAT", "es-es": "ES-ES", "pt-br": "PT-BR",
+		"fr": "FR", "de": "DE", "it": "IT", "ja": "JA", "ko": "KO",
+		"zh": "ZH", "hi": "HI", "ru": "RU", "dual": "DUAL"
+	};
+
+	let filtered = rawResults;
+
+	// Quality filter (strict — no fallback)
+	const qualPref = localStorage.getItem("movieplus:torrentQuality") || "all";
+	if (qualPref !== "all") {
+		filtered = filtered.filter(r => r.detectedQuality === qualPref);
+	}
+
+	// Compatibility format filter (strict — no fallback)
+	const compatPref = localStorage.getItem("movieplus:torrentCompat") || "all";
+	if (compatPref !== "all") {
+		filtered = filtered.filter(r => getTorrentExtInfo(r.title).level === compatPref);
+	}
+
+	// Sort by seeds
+	filtered.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
+
+	resultsDiv.innerHTML = "";
+
+	if (filtered.length === 0) {
+		const compatName = COMPAT_NAMES[compatPref] || "";
+		const qualName = qualPref !== "all" ? qualPref.toUpperCase() : "";
+		const filtersDesc = [qualName, compatName].filter(Boolean).join(" + ");
+		resultsDiv.innerHTML = `<span style='color:#f39c12'>⚠️ No hay torrents <strong>${filtersDesc}</strong> disponibles para este título. Cambia los filtros para ver más opciones.</span>`;
+		return;
+	}
+
+	filtered.slice(0, 20).forEach((torrent) => {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "movie-link-pill torrent-result-btn";
+
+		const qualColor = QUALITY_COLORS[torrent.detectedQuality] || "#666";
+		const qualLabel = (torrent.detectedQuality || "?").toUpperCase();
+		const langLabel = LANG_LABELS[torrent.detectedLang] || torrent.detectedLang?.toUpperCase() || "";
+		const seedsText = torrent.seeds ? `${torrent.seeds}` : "0";
+		const extInfo = getTorrentExtInfo(torrent.title);
+		const extBadge = extInfo.ext
+			? `<span style="display:inline-block;background:${extInfo.color};color:${extInfo.textColor};border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px" title="${extInfo.title}">${extInfo.ext.toUpperCase()}</span>`
+			: "";
+
+		btn.innerHTML = `<span style="display:inline-block;background:${qualColor};color:#000;border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px">${qualLabel}</span>`
+			+ (langLabel ? `<span style="display:inline-block;background:#555;color:#fff;border-radius:3px;padding:1px 5px;font-size:0.75em;margin-right:4px">${langLabel}</span>` : "")
+			+ extBadge
+			+ `<span style="color:#2ecc71;font-size:0.8em;margin-right:6px">⬆${seedsText}</span>`
+			+ `<span>${torrent.title || 'Torrent'}</span>`
+			+ (torrent.size ? ` <span style="color:#888;font-size:0.85em">(${torrent.size})</span>` : "");
+
+		btn.onclick = () => openTorrentInNewWindow(torrent);
+		resultsDiv.appendChild(btn);
+	});
 }
 
 // ===================== TORRENT NEW WINDOW =====================
