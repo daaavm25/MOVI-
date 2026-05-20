@@ -1273,6 +1273,28 @@ function setSelectedTorrentLang(lang) {
 	localStorage.setItem("movieplus:torrentLang", lang);
 }
 
+// ── Torrent format compatibility ──────────────────────────────────────────
+const COMPAT_EXTS = {
+	high:   ["mp4", "webm", "m4v"],
+	medium: ["mkv"],
+	low:    ["avi", "wmv", "mov", "ts", "flv", "mpg", "mpeg", "ogv", "divx", "vob"]
+};
+const COMPAT_META = {
+	high:    { color: "#2ecc71", textColor: "#000", title: "Alta compatibilidad (reproduce directo en navegador)" },
+	medium:  { color: "#f39c12", textColor: "#000", title: "Compatibilidad media — MKV puede reproducirse si el codec es H.264" },
+	low:     { color: "#e74c3c", textColor: "#fff", title: "Baja compatibilidad — probablemente no se reproduzca en el navegador" },
+	unknown: { color: "#555",    textColor: "#fff", title: "Formato desconocido" }
+};
+
+function getTorrentExtInfo(title) {
+	const match = (title || "").match(/\.(mp4|webm|m4v|mkv|avi|wmv|mov|ts|flv|mpg|mpeg|ogv|divx|vob)\b/i);
+	const ext = match ? match[1].toLowerCase() : null;
+	if (!ext) return { ext: null, level: "unknown", ...COMPAT_META.unknown };
+	if (COMPAT_EXTS.high.includes(ext))   return { ext, level: "high",    ...COMPAT_META.high };
+	if (COMPAT_EXTS.medium.includes(ext)) return { ext, level: "medium",  ...COMPAT_META.medium };
+	return { ext, level: "low", ...COMPAT_META.low };
+}
+
 // ===================== TORRENT INTEGRATION =====================
 function renderTorrentSearch(movie) {
 	elements.moviePlayerLinks.innerHTML = "";
@@ -1349,6 +1371,50 @@ function renderTorrentSearch(movie) {
 	});
 	qualRow.appendChild(qualGroup);
 
+	// ── Compatibility filter ──
+	const compatRow = document.createElement("div");
+	compatRow.className = "torrent-selector-row";
+	const compatLabel = document.createElement("span");
+	compatLabel.className = "torrent-selector-label";
+	compatLabel.textContent = "📱 Compatibilidad";
+	compatRow.appendChild(compatLabel);
+
+	const compatGroup = document.createElement("div");
+	compatGroup.className = "selector-group";
+	compatGroup.setAttribute("role", "group");
+	compatGroup.setAttribute("aria-label", "Filtrar por compatibilidad del formato");
+
+	const compatOptions = [
+		{ value: "all",    icon: "🎬", label: "Todos",      hint: "Mostrar todos los formatos" },
+		{ value: "high",   icon: "🟢", label: "MP4/WebM",   hint: "Alta compatibilidad — reproduce directo en navegador" },
+		{ value: "medium", icon: "🟡", label: "MKV",        hint: "Media — MKV con codec H.264 suele funcionar" },
+		{ value: "low",    icon: "🔴", label: "AVI/otros",  hint: "Baja — puede no reproducirse en el navegador" }
+	];
+	const savedCompat = localStorage.getItem("movieplus:torrentCompat") || "all";
+	compatOptions.forEach(opt => {
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "selector-option" + (opt.value === savedCompat ? " is-active" : "");
+		btn.dataset.value = opt.value;
+		btn.setAttribute("aria-pressed", String(opt.value === savedCompat));
+		btn.title = opt.hint;
+		btn.innerHTML = `<span aria-hidden="true">${opt.icon}</span> ${opt.label}`;
+		btn.addEventListener("click", () => {
+			localStorage.setItem("movieplus:torrentCompat", opt.value);
+			compatGroup.querySelectorAll(".selector-option").forEach(b => {
+				b.classList.toggle("is-active", b.dataset.value === opt.value);
+				b.setAttribute("aria-pressed", String(b.dataset.value === opt.value));
+			});
+		});
+		compatGroup.appendChild(btn);
+	});
+	compatRow.appendChild(compatGroup);
+
+	// ── Hint text ──
+	const compatHint = document.createElement("p");
+	compatHint.className = "torrent-compat-hint";
+	compatHint.innerHTML = '🟢 MP4/WebM = reproducción directa &nbsp;|&nbsp; 🟡 MKV = depende del codec &nbsp;|&nbsp; 🔴 AVI/otros = baja compatibilidad';
+
 	const torrentBtn = document.createElement("button");
 	torrentBtn.type = "button";
 	torrentBtn.className = "btn btn-primary torrent-search-btn";
@@ -1362,6 +1428,8 @@ function renderTorrentSearch(movie) {
 
 	elements.moviePlayerLinks.appendChild(langRow);
 	elements.moviePlayerLinks.appendChild(qualRow);
+	elements.moviePlayerLinks.appendChild(compatRow);
+	elements.moviePlayerLinks.appendChild(compatHint);
 	elements.moviePlayerLinks.appendChild(torrentBtn);
 	elements.moviePlayerLinks.appendChild(torrentResultsDiv);
 }
@@ -1398,6 +1466,13 @@ async function buscarYMostrarTorrents(movie, resultsDiv) {
 			if (qualFiltered.length > 0) filtered = qualFiltered;
 		}
 
+		// Compatibility format filter
+		const compatPref = localStorage.getItem("movieplus:torrentCompat") || "all";
+		if (compatPref !== "all") {
+			const compatFiltered = filtered.filter(r => getTorrentExtInfo(r.title).level === compatPref);
+			if (compatFiltered.length > 0) filtered = compatFiltered;
+		}
+
 		// Sort by seeds
 		filtered.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
 
@@ -1423,9 +1498,14 @@ async function buscarYMostrarTorrents(movie, resultsDiv) {
 			const qualLabel = (torrent.detectedQuality || "?").toUpperCase();
 			const langLabel = LANG_LABELS[torrent.detectedLang] || torrent.detectedLang?.toUpperCase() || "";
 			const seedsText = torrent.seeds ? `${torrent.seeds}` : "0";
+			const extInfo = getTorrentExtInfo(torrent.title);
+			const extBadge = extInfo.ext
+				? `<span style="display:inline-block;background:${extInfo.color};color:${extInfo.textColor};border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px" title="${extInfo.title}">${extInfo.ext.toUpperCase()}</span>`
+				: "";
 
 			btn.innerHTML = `<span style="display:inline-block;background:${qualColor};color:#000;border-radius:3px;padding:1px 5px;font-size:0.75em;font-weight:bold;margin-right:4px">${qualLabel}</span>`
 				+ (langLabel ? `<span style="display:inline-block;background:#555;color:#fff;border-radius:3px;padding:1px 5px;font-size:0.75em;margin-right:4px">${langLabel}</span>` : "")
+				+ extBadge
 				+ `<span style="color:#2ecc71;font-size:0.8em;margin-right:6px">⬆${seedsText}</span>`
 				+ `<span>${torrent.title || 'Torrent'}</span>`
 				+ (torrent.size ? ` <span style="color:#888;font-size:0.85em">(${torrent.size})</span>` : "");

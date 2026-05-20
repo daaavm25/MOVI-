@@ -1954,6 +1954,14 @@ body[data-vision="colorblind"] .toast.error {
   padding: 5px 11px;
 }
 
+.torrent-compat-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 4px 0 10px;
+  line-height: 1.6;
+}
+
 .torrent-search-btn {
   width: auto;
   max-width: 100%;
