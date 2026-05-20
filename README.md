@@ -1,112 +1,203 @@
-# ProyectoSW
+# Movie+
 
-Aplicacion web de peliculas con backend en Express, base de datos PostgreSQL y frontend estatico servido por el mismo servidor.
+Plataforma web de películas con búsqueda, watchlist personal, búsqueda de torrents y reproductor integrado.
 
-## Configuracion
+**URL de producción:** http://20.25.227.81:8000  
+**API Docs (Swagger):** http://20.25.227.81:8000/docs/  
+**Health check:** http://20.25.227.81:8000/health
 
-1. Copia .env.example a .env.
-2. Ajusta TMDB_API_KEY y las variables de base de datos.
-3. Instala dependencias con npm install.
-4. Inicia el servidor con npm start.
+---
 
-## Docker (demo y ejecucion)
+## Tecnologías utilizadas
 
-### Verificar Docker
+| Capa | Tecnología |
+|------|-----------|
+| Frontend | HTML5, CSS3, JavaScript (Vanilla) |
+| Backend | Node.js 20, Express 5 |
+| Base de datos | PostgreSQL 16 (Sequelize ORM) |
+| Contenedores | Docker + Docker Compose |
+| Torrent indexer | Jackett + Torrentio API |
+| Catálogo de películas | TMDB API |
+| Infraestructura | Azure VM (Ubuntu) |
 
-- Linux/macOS/WSL: docker --version
-- Windows (PowerShell): docker --version
+---
 
-Si en Linux aparece permiso denegado con docker, usa sudo o reinicia sesion tras agregarte al grupo docker.
+## Arquitectura
 
-### Comandos de la practica (equivalentes a la pizarra)
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Azure VM                            │
+│                                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │   Frontend   │  │   Backend    │  │   Jackett    │  │
+│  │  Nginx:8080  │  │  Express:8000│  │   :9117      │  │
+│  └──────────────┘  └──────┬───────┘  └──────────────┘  │
+│                           │                             │
+│                    ┌──────▼───────┐                     │
+│                    │ PostgreSQL   │                     │
+│                    │   :5432      │                     │
+│                    └──────────────┘                     │
+└─────────────────────────────────────────────────────────┘
+```
 
-- docker pull python:3.11.5-slim-bookworm
-- docker run --rm python:3.11.5-slim-bookworm python3 --version
-- docker image ls
-- docker rmi python:3.11.5-slim-bookworm
+El backend (puerto 8000) sirve también el frontend como archivos estáticos, por lo que la app es accesible en un solo punto.
 
-Tambien puedes ejecutarlos con npm scripts:
+---
 
-- npm run docker:pull:python
-- npm run docker:python:version
-- npm run docker:image:list
-- npm run docker:image:rm:python
+## Requisitos previos
 
-### Ejecución Automática con Docker (Fase 3 y Fase 4)
+- Docker 24+
+- Docker Compose v2+
+- Git
 
-TODO se ejecuta automáticamente. No necesitas comandos adicionales.
+---
 
-Paso único para levantar todo (backend + frontend + base de datos):
+## Instalación y ejecución
 
-	docker compose up -d
+### 1. Clonar el repositorio
 
-Eso es todo. La aplicación estará lista en:
-- Frontend: http://localhost:8080
-- Backend: http://localhost:8000
+```bash
+git clone https://github.com/daaavm25/MOVI-.git
+cd MOVI-
+```
 
-PERSISTENCIA DE DATOS AUTOMÁTICA
+### 2. Configurar variables de entorno
 
-Los datos de usuarios y cualquier información almacenada en PostgreSQL se guardan automáticamente en un volumen Docker llamado pgdata. Esto significa que aunque hagas docker compose down, los datos NO se pierden. Al volver a hacer docker compose up -d, todos tus usuarios y datos seguirán ahí.
+```bash
+cp .env.example .env
+```
 
-Comandos útiles (opcionales):
+Edita `.env` con tus valores:
 
-- Ver logs: docker compose logs -f backend
-- Parar servicios: docker compose down (datos persisten)
-- Reiniciar: docker compose up -d
-- Eliminar TODOS los datos (cuidado): docker compose down -v (el -v elimina volúmenes)
+```env
+TMDB_API_KEY=tu_api_key_de_tmdb
+FRONTEND_URL=http://localhost:8080,http://localhost:8000
+DB_PASSWORD=tu_password_seguro
+JACKETT_API_KEY=generada_automaticamente_por_jackett
+```
 
-Nota de puertos:
-- Frontend: 8080
-- Backend: 8000
-- PostgreSQL: 5433 en host (5432 interno)
+### 3. Levantar todos los servicios
 
-COMO FUNCIONA
+```bash
+docker compose up -d
+```
 
-El archivo docker-compose.yml define 3 servicios:
+La aplicación estará disponible en:
+- **App principal:** http://localhost:8000
+- **API Docs:** http://localhost:8000/docs/
+- **Frontend (nginx):** http://localhost:8080
 
-1. db (PostgreSQL) - guarda todos los datos en el volumen pgdata
-2. backend (Node/Express) - servicio API en puerto 8000
-3. frontend (Nginx) - interfaz web en puerto 8080
+### 4. Verificar que todo funciona
 
-Cuando haces docker compose up -d:
-- Se construyen las imágenes (solo la primera vez)
-- Se crean y levantan los contenedores
-- Los servicios se conectan automáticamente entre sí
-- Las tablas de base de datos se crean automáticamente
-- El sistema está listo para usar
+```bash
+curl http://localhost:8000/health
+```
 
-Cuando haces docker compose down:
-- Se detienen y eliminan los contenedores
-- Los volúmenes persisten (tus datos siguen guardados)
-- Las imágenes se mantienen (más rápido al volver a levantar)
+---
 
-Cuando haces docker compose up -d de nuevo:
-- Se reutilizan los contenedores
-- Se cargan los datos del volumen pgdata
-- Todo sigue funcionando como antes
+## Variables de entorno
 
-## Variables importantes
+| Variable | Requerida | Descripción |
+|----------|-----------|-------------|
+| `NODE_ENV` | No | `development` o `production` (default: development) |
+| `PORT` | No | Puerto del backend (default: 8000) |
+| `HOST` | No | Interfaz de red (default: 0.0.0.0) |
+| `FRONTEND_URL` | **Sí en prod** | Orígenes CORS permitidos, separados por coma |
+| `TMDB_API_KEY` | **Sí** | Clave de API de The Movie Database |
+| `TMDB_BASE_URL` | No | URL base TMDB (default: https://api.themoviedb.org/3) |
+| `TMDB_PROVIDER_COUNTRY` | No | País para proveedores streaming (default: MX) |
+| `DB_HOST` | No | Host PostgreSQL (default: db en Docker) |
+| `DB_PORT` | No | Puerto PostgreSQL (default: 5432) |
+| `DB_NAME` | No | Nombre de la base de datos (default: cinesphere) |
+| `DB_USER` | No | Usuario PostgreSQL (default: postgres) |
+| `DB_PASSWORD` | **Sí** | Contraseña PostgreSQL |
+| `JACKETT_URL` | No | URL interna de Jackett (default: http://jackett:9117) |
+| `JACKETT_API_KEY` | No | Clave API de Jackett |
+| `ADMIN_USERNAMES` | No | Usernames con acceso admin, separados por coma |
 
-- PORT: puerto del servidor.
-- HOST: interfaz de red donde escucha el servidor.
-- NODE_ENV: usa `production` para despliegue.
-- FRONTEND_URL: origen permitido por CORS. Puedes poner varios separados por coma.
-- TMDB_API_KEY: clave de The Movie Database.
-- TMDB_BASE_URL: URL base de TMDB (opcional, por defecto oficial).
-- TMDB_PROVIDER_COUNTRY: pais por defecto para consulta de proveedores.
-- JACKETT_URL, JACKETT_API_KEY: configuracion del buscador de torrents.
-- API_KEY_EXTERNA: llave opcional para integraciones o demos adicionales.
-- DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD: conexion a PostgreSQL.
-- DATABASE_URL: alternativa de cadena unica para PostgreSQL.
+---
 
-En `NODE_ENV=production`, `FRONTEND_URL` es obligatorio para evitar CORS abierto.
+## Endpoints principales
 
-## Reproduccion de peliculas
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/health` | Estado del servidor y BD |
+| GET | `/peliculas?query=` | Buscar películas |
+| GET | `/peliculas/populares` | Películas populares |
+| GET | `/peliculas/genero/:genero` | Películas por género |
+| GET | `/peliculas/:id` | Detalle de película |
+| GET | `/peliculas/:id/proveedores` | Plataformas de streaming |
+| POST | `/auth/register` | Registro de usuario |
+| POST | `/auth/login` | Inicio de sesión |
+| POST | `/auth/logout` | Cerrar sesión |
+| GET | `/auth/me` | Usuario autenticado |
+| GET | `/watchlist` | Obtener colección personal |
+| POST | `/watchlist` | Agregar película a colección |
+| PUT | `/watchlist/:id` | Actualizar item |
+| DELETE | `/watchlist/:id` | Eliminar item |
+| GET | `/api/torrent/search?query=` | Buscar torrents |
+| GET | `/docs/` | Documentación Swagger |
 
-El proyecto hoy usa TMDB para catalogo, detalle y proveedores, pero TMDB no entrega video completo de peliculas para reproducirlo en un player propio. Para reproduccion legal en un reproductor nativo necesitas una API o catalogo con licencias de streaming y URLs directas de video o manifiestos HLS/DASH.
+Ver documentación completa en: http://20.25.227.81:8000/docs/
 
-Con el estado actual, la opcion correcta es:
+---
 
-- usar TMDB para descubrimiento y detalle;
-- usar proveedores para redirigir al usuario a la plataforma oficial donde puede verla;
-- integrar un proveedor licenciado si quieren reproduccion dentro de la pagina.
+## Persistencia de datos
+
+Los datos persisten automáticamente gracias a volúmenes Docker:
+
+- `pgdata` — base de datos PostgreSQL (usuarios, watchlist, sesiones)
+- `webtorrent-data` — caché de streaming de torrents
+- `jackett-config` — configuración de indexers de Jackett
+
+Hacer `docker compose down` **no borra los datos**. Solo `docker compose down -v` elimina los volúmenes.
+
+---
+
+## Comandos útiles
+
+```bash
+# Ver logs del backend
+docker compose logs -f backend
+
+# Reiniciar un servicio
+docker compose restart backend
+
+# Ver estado de contenedores
+docker compose ps
+
+# Parar todo (datos persisten)
+docker compose down
+
+# Parar y eliminar datos (cuidado)
+docker compose down -v
+```
+
+---
+
+## Tests
+
+```bash
+# Ejecutar tests funcionales de la API
+node tests/api.test.js
+```
+
+---
+
+## Despliegue en Azure
+
+El proyecto está desplegado en una Azure VM usando Docker Compose. El script de despliegue automático se encuentra en `scripts/azure-deploy.sh`.
+
+**Plataforma:** Azure VM (Standard B2s, Ubuntu 22.04)  
+**IP pública:** 20.25.227.81  
+**Puertos abiertos:** 8000 (app), 8080 (frontend nginx), 9117 (Jackett)
+
+---
+
+## Propuesta de valor única (PVU)
+
+Movie+ integra búsqueda de torrents en tiempo real como funcionalidad diferenciadora:
+- Búsqueda multi-proveedor: Jackett, Torrentio/Stremio, TPB, YTS
+- Filtros por idioma (latino, español, inglés, etc.) y calidad (4K, 1080p, 720p)
+- Resolución automática de título en inglés vía TMDB para mejores resultados
+- Reproductor de streaming por torrent integrado en la misma interfaz

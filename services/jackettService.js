@@ -39,20 +39,58 @@ async function resolveTmdbInfo(tmdbId) {
 
   try {
     const res = await axios.get(`${TMDB_BASE_URL}/movie/${tmdbId}`, {
-      params: { api_key: TMDB_API_KEY, language: 'en' },
+      params: { api_key: TMDB_API_KEY, language: 'en', append_to_response: 'external_ids' },
       timeout: 5000
     });
     const d = res.data;
     const info = {
       englishTitle: d.title || '',
       originalTitle: d.original_title || '',
-      year: d.release_date ? d.release_date.slice(0, 4) : ''
+      year: d.release_date ? d.release_date.slice(0, 4) : '',
+      imdbId: d.external_ids?.imdb_id || d.imdb_id || ''
     };
-    console.log(`[TMDB] ID ${tmdbId} → en: "${info.englishTitle}", orig: "${info.originalTitle}", year: ${info.year}`);
+    console.log(`[TMDB] ID ${tmdbId} → en: "${info.englishTitle}", orig: "${info.originalTitle}", year: ${info.year}, imdb: ${info.imdbId}`);
     _tmdbCache.set(tmdbId, info);
     return info;
   } catch (err) {
     console.log(`[TMDB] Fetch failed for ${tmdbId}: ${err.message}`);
+    return null;
+  }
+}
+
+// Search TMDB by title to resolve English title when no tmdbId is available
+const _tmdbSearchCache = new Map();
+
+async function searchTmdbByTitle(title, year) {
+  if (!TMDB_API_KEY || !title) return null;
+  const cacheKey = `${title}|${year}`;
+  if (_tmdbSearchCache.has(cacheKey)) return _tmdbSearchCache.get(cacheKey);
+
+  try {
+    const params = { api_key: TMDB_API_KEY, query: title, language: 'en' };
+    if (year) params.year = year;
+    const res = await axios.get(`${TMDB_BASE_URL}/search/movie`, { params, timeout: 5000 });
+    const results = res.data?.results || [];
+    if (results.length === 0) { _tmdbSearchCache.set(cacheKey, null); return null; }
+    const best = results[0];
+    let imdbId = '';
+    try {
+      const extRes = await axios.get(`${TMDB_BASE_URL}/movie/${best.id}/external_ids`, {
+        params: { api_key: TMDB_API_KEY }, timeout: 5000
+      });
+      imdbId = extRes.data?.imdb_id || '';
+    } catch (_) {}
+    const info = {
+      englishTitle: best.title || '',
+      originalTitle: best.original_title || '',
+      year: best.release_date ? best.release_date.slice(0, 4) : '',
+      imdbId
+    };
+    console.log(`[TMDB] Search "${title}" → en: "${info.englishTitle}", orig: "${info.originalTitle}", year: ${info.year}, imdb: ${info.imdbId}`);
+    _tmdbSearchCache.set(cacheKey, info);
+    return info;
+  } catch (err) {
+    console.log(`[TMDB] Search failed for "${title}": ${err.message}`);
     return null;
   }
 }
@@ -96,10 +134,19 @@ async function searchTorrents(query, options = {}) {
   // 1. Resolve best title via TMDB
   let bestTitle = query;
   let year = yearHint || '';
+  let imdbId = '';
   const tmdbInfo = await resolveTmdbInfo(tmdbId);
   if (tmdbInfo) {
     bestTitle = tmdbInfo.englishTitle || tmdbInfo.originalTitle || query;
     if (!year) year = tmdbInfo.year;
+    imdbId = tmdbInfo.imdbId || '';
+  } else if (TMDB_API_KEY) {
+    const searchInfo = await searchTmdbByTitle(query, year);
+    if (searchInfo && searchInfo.englishTitle && searchInfo.englishTitle.toLowerCase() !== query.toLowerCase()) {
+      bestTitle = searchInfo.englishTitle;
+      if (!year) year = searchInfo.year;
+    }
+    if (searchInfo?.imdbId) imdbId = searchInfo.imdbId;
   }
 
   // 2. Generate ordered list of search queries
@@ -119,9 +166,23 @@ async function searchTorrents(query, options = {}) {
     if (results.length > 0) {
       allResults.push(...results);
       console.log(`[Torrent] ✓ "${searchQuery}" → ${results.length} resultados. Deteniendo búsqueda.`);
-      break; // We have results, no need to try more queries
+      break;
     }
     console.log(`[Torrent] ✗ "${searchQuery}" → 0 resultados, probando siguiente...`);
+  }
+
+  // 4. Phase 4 fallback: Torrentio (works from cloud IPs, requires IMDB ID)
+  if (allResults.length === 0 && imdbId) {
+    try {
+      console.log(`[Torrent] Fase 4: Torrentio (IMDB: ${imdbId})...`);
+      const torrentioResults = await _searchTorrentio(imdbId);
+      if (torrentioResults.length > 0) {
+        console.log(`[Torrent] Torrentio encontró ${torrentioResults.length} resultados`);
+        allResults.push(...torrentioResults);
+      }
+    } catch (err) {
+      console.log(`[Torrent] Torrentio falló: ${err.message}`);
+    }
   }
 
   // 4. Deduplicate by info_hash
@@ -293,23 +354,64 @@ const MAGNET_TRACKERS = [
 ];
 const TRACKERS_STR = MAGNET_TRACKERS.map(t => `&tr=${encodeURIComponent(t)}`).join('');
 
+async function _resolveMagnetFromLink(link) {
+  try {
+    const resp = await axios.get(link, {
+      maxRedirects: 0,
+      validateStatus: s => s >= 200 && s < 400,
+      timeout: 6000
+    });
+    const loc = resp.headers?.location;
+    if (loc && loc.startsWith('magnet:')) return loc;
+  } catch (e) {
+    const loc = e.response?.headers?.location;
+    if (loc && loc.startsWith('magnet:')) return loc;
+  }
+  return null;
+}
+
 async function _searchJackett(query) {
   if (!JACKETT_API_KEY) return [];
   const url = `${JACKETT_URL}/api/v2.0/indexers/all/results`;
   const response = await axios.get(url, {
     params: { Query: query, apikey: JACKETT_API_KEY },
-    timeout: 10000,
+    timeout: 15000,
   });
   if (response.data && Array.isArray(response.data.Results) && response.data.Results.length > 0) {
-    return response.data.Results.map(r => ({
-      title: r.Title,
-      seeds: r.Seeders,
-      size: r.Size,
-      magnet: r.MagnetUri,
-      link: r.Link,
-      tracker: r.Tracker,
-      provider: 'Jackett'
-    }));
+    const results = response.data.Results.map(r => {
+      const sizeBytes = r.Size;
+      let sizeStr = '';
+      if (typeof sizeBytes === 'number' && sizeBytes > 0) {
+        if (sizeBytes >= 1e9) sizeStr = (sizeBytes / 1e9).toFixed(2) + ' GB';
+        else sizeStr = (sizeBytes / 1e6).toFixed(0) + ' MB';
+      } else if (typeof sizeBytes === 'string') {
+        sizeStr = sizeBytes;
+      }
+      return {
+        title: r.Title,
+        seeds: r.Seeders,
+        size: sizeStr,
+        magnet: r.MagnetUri || null,
+        link: r.Link,
+        tracker: r.Tracker,
+        provider: 'Jackett'
+      };
+    });
+
+    // Resolve null magnets concurrently from Jackett download links (which redirect to magnet: URIs)
+    const noMagnet = results.filter(r => !r.magnet && r.link && r.link.includes(JACKETT_URL.replace('http://', '')));
+    if (noMagnet.length > 0) {
+      await Promise.allSettled(
+        noMagnet.map(async r => {
+          const magnet = await _resolveMagnetFromLink(r.link);
+          if (magnet) r.magnet = magnet;
+        })
+      );
+      const resolved = noMagnet.filter(r => r.magnet).length;
+      if (resolved > 0) console.log(`[Jackett] Resueltos ${resolved}/${noMagnet.length} magnets desde links de descarga`);
+    }
+
+    return results;
   }
   return [];
 }
@@ -338,10 +440,9 @@ async function _searchTPB(query) {
 async function _searchTorrentSearchApi(query) {
   if (!TorrentSearchApi) {
     TorrentSearchApi = (await import('torrent-search-api')).default;
-    TorrentSearchApi.enableProvider('1337x');
-    TorrentSearchApi.enableProvider('ThePirateBay');
-    TorrentSearchApi.enableProvider('LimeTorrents');
-    TorrentSearchApi.enableProvider('TorrentGalaxy');
+    for (const provider of ['1337x', 'ThePirateBay', 'LimeTorrents', 'TorrentGalaxy']) {
+      try { TorrentSearchApi.enableProvider(provider); } catch (_) { /* provider not available */ }
+    }
   }
   const results = await TorrentSearchApi.search(query, 'Movies', 20);
   if (!results || results.length === 0) return [];
@@ -388,6 +489,35 @@ async function _searchYTS(query) {
     } catch { /* try next domain */ }
   }
   return [];
+}
+
+async function _searchTorrentio(imdbId) {
+  if (!imdbId) return [];
+  const res = await axios.get(`https://torrentio.strem.fun/stream/movie/${imdbId}.json`, {
+    timeout: 15000
+  });
+  const streams = res.data?.streams || [];
+  if (streams.length === 0) return [];
+  return streams.map(s => {
+    const hash = s.infoHash || '';
+    const filename = s.behaviorHints?.filename || '';
+    const title = s.title || '';
+    const name = s.name || '';
+    const displayTitle = filename || title.split('\n').slice(1).join(' ').trim() || name;
+    const seedMatch = title.match(/👤\s*(\d+)/);
+    const seeds = seedMatch ? parseInt(seedMatch[1]) : 0;
+    const sizeMatch = title.match(/💾\s*([\d.]+\s*(?:GB|MB|TB))/);
+    const size = sizeMatch ? sizeMatch[1] : '';
+    return {
+      title: displayTitle,
+      seeds,
+      size,
+      magnet: hash ? `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(displayTitle)}${TRACKERS_STR}` : null,
+      link: null,
+      tracker: 'Torrentio',
+      provider: 'Torrentio'
+    };
+  }).filter(r => r.magnet);
 }
 
 // ─── Main provider orchestrator ──────────────────────────────────

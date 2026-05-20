@@ -5,6 +5,8 @@ const cors = require('cors');
 const axios = require('axios');
 const crypto = require('crypto');
 const path = require('path');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
 const {
     FRONTEND_URLS,
     isAllowedOrigin,
@@ -105,6 +107,10 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.static(FRONTEND_DIR));
+
+// API Docs
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'Movie+ API Docs' }));
+app.get('/docs.json', (req, res) => res.json(swaggerSpec));
 
 // Home page
 app.get('/', (req, res) => {
@@ -264,6 +270,18 @@ async function getTmdbProviders(movieId, countryCode) {
     };
 }
 
+const IS_PRODUCTION = String(process.env.NODE_ENV || 'development').toLowerCase() === 'production';
+
+function apiError(res, status, message, err = null) {
+    const body = { error: message };
+    if (!IS_PRODUCTION && err) body.details = err.message;
+    return res.status(status).json(body);
+}
+
+function tmdbErrorStatus(err) {
+    return err?.response?.status || 500;
+}
+
 app.get('/peliculas', async (req, res) => {
     try {
         const query = String(req.query.query || '').trim();
@@ -289,10 +307,7 @@ app.get('/peliculas', async (req, res) => {
             total: results.length
         });
     } catch (error) {
-        return res.status(500).json({
-            error: 'Error al consultar TMDB',
-            details: error.message
-        });
+        return apiError(res, 500, 'Error al consultar TMDB', error);
     }
 });
 
@@ -306,7 +321,7 @@ app.get('/peliculas/populares', async (req, res) => {
         const results = (response.data?.results || []).slice(0, 20).map(mapMovieFromTmdb).filter(m => m.id && m.titulo);
         return res.json({ results, total: results.length });
     } catch (error) {
-        return res.status(500).json({ error: 'Error al obtener películas populares.', details: error.message });
+        return apiError(res, 500, 'Error al obtener películas populares.', error);
     }
 });
 
@@ -325,7 +340,7 @@ app.get('/peliculas/genero/:genero', async (req, res) => {
         const results = (response.data?.results || []).slice(0, 20).map(mapMovieFromTmdb).filter(m => m.id && m.titulo);
         return res.json({ results, total: results.length, genre: key, genreId });
     } catch (error) {
-        return res.status(500).json({ error: 'Error al obtener películas por género.', details: error.message });
+        return apiError(res, 500, 'Error al obtener películas por género.', error);
     }
 });
 
@@ -349,7 +364,9 @@ app.get('/peliculas/:id', async (req, res) => {
             descripcion: m.overview || ""
         });
     } catch (error) {
-        return res.status(500).json({ error: 'Error al obtener detalle de pelicula.', details: error.message });
+        const status = tmdbErrorStatus(error);
+        if (status === 404) return res.status(404).json({ error: 'Película no encontrada.' });
+        return apiError(res, 500, 'Error al obtener detalle de pelicula.', error);
     }
 });
 
@@ -377,16 +394,14 @@ app.get('/peliculas/:id/proveedores', async (req, res) => {
             refreshedAt: new Date().toISOString()
         });
     } catch (error) {
-        return res.status(500).json({
-            error: 'Error al consultar proveedores de streaming',
-            details: error.message
-        });
+        const status = tmdbErrorStatus(error);
+        if (status === 404) return res.status(404).json({ error: 'Película no encontrada.' });
+        return apiError(res, 500, 'Error al consultar proveedores de streaming', error);
     }
 });
 
 // Endpoint dinámico de búsqueda
 app.get('/pelicula/:nombre', async (req, res) => {
-
     try {
         const nombre = String(req.params.nombre || '').trim();
 
@@ -399,22 +414,13 @@ app.get('/pelicula/:nombre', async (req, res) => {
         const results = await searchTmdb(nombre);
 
         if (results.length === 0) {
-            return res.status(404).json({
-                error: 'Pelicula no encontrada'
-            });
+            return res.status(404).json({ error: 'Pelicula no encontrada' });
         }
 
-        const filteredData = mapMovieFromTmdb(results[0]);
-
-        res.json(filteredData);
-
+        res.json(mapMovieFromTmdb(results[0]));
     } catch (error) {
-        res.status(500).json({
-            error: 'Error al consultar TMDB',
-            details: error.message
-        });
+        return apiError(res, 500, 'Error al consultar TMDB', error);
     }
-
 });
 
 // ---------- TMDB Genre IDs ----------
@@ -472,7 +478,7 @@ app.post('/auth/register', requireDatabase, async (req, res) => {
             is_admin: isAdminUser(user.username)
         });
     } catch (error) {
-        return res.status(500).json({ error: 'Error al registrar usuario.', details: error.message });
+        return apiError(res, 500, 'Error al registrar usuario.', error);
     }
 });
 
@@ -512,7 +518,7 @@ app.post('/auth/login', requireDatabase, async (req, res) => {
             }
         });
     } catch (error) {
-        return res.status(500).json({ error: 'Error al iniciar sesión.', details: error.message });
+        return apiError(res, 500, 'Error al iniciar sesión.', error);
     }
 });
 

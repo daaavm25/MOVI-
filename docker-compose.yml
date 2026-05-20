@@ -2,8 +2,10 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: ${DB_NAME:-movieplus}
+      POSTGRES_DB: ${DB_NAME:-cinesphere}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
@@ -15,6 +17,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Mexico_City
+      - AUTO_UPDATE=true
+    volumes:
+      - jackett-config:/config
+      - jackett-downloads:/downloads
+    ports:
+      - "9117:9117"
 
   backend:
     build:
@@ -28,12 +44,15 @@ services:
       PORT: ${PORT:-8000}
       DB_HOST: db
       DB_PORT: 5432
-      FRONTEND_URL: http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000
+      JACKETT_URL: http://jackett:9117
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000,http://127.0.0.1:8000}
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      jackett:
+        condition: service_started
     volumes:
       - webtorrent-data:/tmp/webtorrent
     healthcheck:
@@ -61,3 +80,5 @@ services:
 volumes:
   pgdata:
   webtorrent-data:
+  jackett-config:
+  jackett-downloads:

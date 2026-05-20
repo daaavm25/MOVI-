@@ -87,6 +87,19 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Mobile touch improvements */
+button, a, [role="button"], .nav-btn, .filter-chip, .movie-card, .auth-lamp,
+.pref-btn, .theme-switch, .settings-toggle, .topbar-mobile__hamburger {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, .auth-lamp, .pref-btn, .theme-switch, .settings-toggle,
+.topbar-mobile__hamburger, .filter-chip, .movie-card {
+  cursor: pointer;
 }
 
 body.modal-open {
@@ -217,6 +230,7 @@ ul, ol {
   transition: all var(--transition-fast);
   position: relative;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .nav-btn::before {
