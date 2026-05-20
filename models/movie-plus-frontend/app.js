@@ -203,7 +203,17 @@ function bindEvents() {
 			event.preventDefault();
 			const targetView = button.dataset.view;
 			setActiveView(targetView);
+			if (window.innerWidth <= 768) {
+				closeSidebar();
+			}
 		});
+
+		button.addEventListener("touchend", (event) => {
+			event.preventDefault();
+			const targetView = button.dataset.view;
+			setActiveView(targetView);
+			closeSidebar();
+		}, { passive: false });
 	});
 
 	elements.searchForm.addEventListener("submit", (event) => {
@@ -286,17 +296,27 @@ function bindEvents() {
 			if (sidebarOverlay) sidebarOverlay.classList.toggle("is-visible", isOpen);
 			sidebarToggle.setAttribute("aria-expanded", String(isOpen));
 		});
+
+		sidebarToggle.addEventListener("touchend", (event) => {
+			event.preventDefault();
+			const isOpen = sidebar.classList.toggle("sidebar--open");
+			if (sidebarOverlay) sidebarOverlay.classList.toggle("is-visible", isOpen);
+			sidebarToggle.setAttribute("aria-expanded", String(isOpen));
+		}, { passive: false });
 	}
 
 	if (sidebarOverlay) {
 		sidebarOverlay.addEventListener("click", closeSidebar);
+		sidebarOverlay.addEventListener("touchend", (event) => {
+			event.preventDefault();
+			closeSidebar();
+		}, { passive: false });
 	}
 
-	// Close sidebar on nav click (mobile)
-	elements.navButtons.forEach(btn => {
-		btn.addEventListener("click", () => {
-			if (window.innerWidth <= 768) closeSidebar();
-		});
+	window.addEventListener("resize", () => {
+		if (window.innerWidth > 768) {
+			closeSidebar();
+		}
 	});
 
 	window.addEventListener("keydown", (event) => {
