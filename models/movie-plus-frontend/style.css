@@ -514,11 +514,13 @@ ul, ol {
   backdrop-filter: blur(4px);
   z-index: 38;
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition-base);
 }
 
 .sidebar-overlay.is-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* ─── DASHBOARD (MAIN CONTENT) ─── */
