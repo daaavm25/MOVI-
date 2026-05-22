@@ -207,9 +207,11 @@ async function getOrAddTorrent(magnet) {
   });
 }
 
+const VIDEO_EXT_RE = /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov|rmvb|vob|mpg|mpeg|wmv|3gp|ogv|divx|xvid|hevc|h264|h265)$/i;
+
 function findVideoFile(torrent) {
   return torrent.files
-    .filter(f => /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov)$/i.test(f.name))
+    .filter(f => VIDEO_EXT_RE.test(f.name || f.path || ''))
     .sort((a, b) => b.length - a.length)[0];
 }
 
@@ -221,15 +223,31 @@ function findSubtitleFiles(torrent) {
 
 async function getTorrentInfo(magnet) {
   const torrent = await getOrAddTorrent(magnet);
-  const videos = torrent.files
-    .filter(f => /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov)$/i.test(f.name))
+
+  // Filtro principal: extensiones de video conocidas (comprueba name y path)
+  let videos = torrent.files
+    .filter(f => VIDEO_EXT_RE.test(f.name || f.path || ''))
     .sort((a, b) => b.length - a.length)
     .map(f => ({
       index: torrent.files.indexOf(f),
-      name: f.name,
+      name: f.name || f.path || `archivo_${torrent.files.indexOf(f)}`,
       size: (f.length / 1048576).toFixed(1) + ' MB',
       sizeBytes: f.length
     }));
+
+  // Fallback: si no hay videos reconocidos, tratar archivos grandes (>50 MB) como video
+  if (videos.length === 0 && torrent.files.length > 0) {
+    console.warn(`[WebTorrent] No se detectaron videos por extensión en "${torrent.name}". Usando fallback de archivos grandes.`);
+    videos = torrent.files
+      .filter(f => f.length > 50 * 1024 * 1024)
+      .sort((a, b) => b.length - a.length)
+      .map(f => ({
+        index: torrent.files.indexOf(f),
+        name: f.name || f.path || `archivo_${torrent.files.indexOf(f)}`,
+        size: (f.length / 1048576).toFixed(1) + ' MB',
+        sizeBytes: f.length
+      }));
+  }
 
   const subtitles = findSubtitleFiles(torrent).map(f => ({
     index: torrent.files.indexOf(f),
@@ -425,16 +443,26 @@ async function streamFileTranscoded(magnet, fileIndex, res, dataSaver = false) {
     ...getCorsHeadersForRequest(res.req)
   });
 
-  // Modo ahorro: re-codifica a 720p ~1.8 Mbps (≈10x menos datos que 1080p original)
-  // Modo normal: copia video (sin pérdida) + convierte audio a AAC
+  // analyzeduration/probesize: crítico al leer desde pipe — da tiempo a FFmpeg
+  // para detectar el codec de audio antes de iniciar la codificación.
+  // map 0:v:0 / 0:a:0? — mapeo explícito de streams; '?' hace el audio opcional
+  // (no falla si el archivo no tiene pista de audio).
+  const commonProbe = [
+    '-analyzeduration', '20000000',  // 20 s de análisis
+    '-probesize',       '20000000',  // 20 MB de sondeo
+  ];
+
   const ffmpegArgs = dataSaver ? [
+    ...commonProbe,
     '-i', 'pipe:0',
-    '-c:v', 'libx264',          // re-encode video para reducir bitrate
-    '-preset', 'veryfast',      // rápido, bajo consumo de CPU
-    '-crf', '28',               // calidad (mayor = menor bitrate)
-    '-maxrate', '1800k',        // techo de 1.8 Mbps en video
+    '-map', '0:v:0',
+    '-map', '0:a:0?',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '28',
+    '-maxrate', '1800k',
     '-bufsize', '3600k',
-    '-vf', 'scale=-2:720',      // escalar a 720p manteniendo proporción
+    '-vf', 'scale=-2:720',
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
@@ -442,11 +470,14 @@ async function streamFileTranscoded(magnet, fileIndex, res, dataSaver = false) {
     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
     'pipe:1'
   ] : [
+    ...commonProbe,
     '-i', 'pipe:0',
-    '-c:v', 'copy',             // copia video sin re-codificar (rápido, sin pérdida)
-    '-c:a', 'aac',              // convierte audio (AC3/DTS/etc.) → AAC
+    '-map', '0:v:0',            // primer stream de video
+    '-map', '0:a:0?',           // primer stream de audio (opcional)
+    '-c:v', 'copy',             // copia video sin re-codificar
+    '-c:a', 'aac',              // convierte audio (AC3/DTS/EAC3/TrueHD…) → AAC
     '-b:a', '192k',
-    '-ac', '2',
+    '-ac', '2',                 // stereo (downmix 5.1/7.1)
     '-f', 'mp4',
     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
     'pipe:1'
