@@ -337,6 +337,87 @@
     return sorted[0] || videos[0];
   }
 
+  function getVideoCompatibilityScore(videoName) {
+    const n = (videoName || "").toLowerCase();
+    let score = 0;
+    if (/\.(mp4|m4v)$/.test(n)) score += 30;
+    else if (/\.webm$/.test(n)) score += 24;
+    else if (/\.mkv$/.test(n)) score += 14;
+    else if (/\.(avi|mov|flv|ts)$/.test(n)) score += 8;
+
+    if (/x265|hevc|10bit|hdr/.test(n)) score -= 18;
+    if (/x264|h\.264|avc/.test(n)) score += 8;
+    if (/sample/.test(n)) score -= 10;
+    return score;
+  }
+
+  function getPlaybackCandidates(videos) {
+    const qualityPref = localStorage.getItem("movieplus:torrentQuality") || "all";
+    const levelMap = { "4k": 4, "1080p": 3, "720p": 2, "480p": 1, "all": 0 };
+    const prefLevel = levelMap[qualityPref] || 0;
+
+    return [...videos]
+      .map(v => {
+        const n = (v.name || "").toLowerCase();
+        let level = 0;
+        if (/2160p|4k|uhd/.test(n)) level = 4;
+        else if (/1080p/.test(n)) level = 3;
+        else if (/720p/.test(n)) level = 2;
+        else if (/480p/.test(n)) level = 1;
+        const qualityDistance = prefLevel ? Math.abs(level - prefLevel) : 0;
+        return {
+          ...v,
+          _rank: getVideoCompatibilityScore(v.name) - (qualityDistance * 4)
+        };
+      })
+      .sort((a, b) => b._rank - a._rank);
+  }
+
+  function tryStream(videoItem, allVideos) {
+    return new Promise((resolve, reject) => {
+      const videoUrl = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
+      const timeoutMs = 25000;
+      let settled = false;
+
+      const cleanup = () => {
+        video.onloadeddata = null;
+        video.onerror = null;
+        video.onstalled = null;
+      };
+
+      const fail = (reason) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error(reason));
+      };
+
+      const ok = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(videoItem);
+      };
+
+      video.onloadeddata = () => ok();
+      video.onerror = () => fail("archivo no compatible o sin peers");
+      video.onstalled = () => fail("stream estancado");
+
+      loaderText.textContent = `Conectando... "${videoItem.name.replace(/^.*[\\/]/, "")}"`;
+      setStatus(`Conectando al stream (${allVideos.indexOf(videoItem) + 1}/${allVideos.length})...`, "loading");
+
+      video.src = videoUrl;
+      video.load();
+      video.play().catch(() => {
+        // Ignore autoplay restrictions. loadeddata still signals successful stream.
+      });
+
+      setTimeout(() => {
+        if (!settled) fail("timeout al iniciar stream");
+      }, timeoutMs);
+    });
+  }
+
   async function startPlayback() {
     if (!magnet) {
       setStatus("No se recibió el enlace magnet.", "error");
@@ -367,7 +448,7 @@
       }
 
       const selected = pickBestVideo(info.videos);
-      const videoUrl = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${selected.index}`;
+      const candidates = getPlaybackCandidates(info.videos);
 
       // Add subtitle tracks
       if (info.subtitles && info.subtitles.length > 0) {
@@ -382,23 +463,31 @@
         });
       }
 
-      video.src = videoUrl;
-      video.load();
-
       buildFileButtons(info.videos, selected.index);
       buildSubtitleButtons(info.subtitles);
 
-      video.onloadeddata = () => {
-        hideLoader();
-        setStatus(`Reproduciendo: ${title}`, "success");
-      };
-      video.onerror = () => {
-        hideLoader();
-        setStatus("Error al reproducir. El torrent puede tener pocos seeds.", "error");
-      };
+      let played = null;
+      for (const candidate of candidates) {
+        try {
+          played = await tryStream(candidate, candidates);
+          break;
+        } catch (_) {
+          // Try next candidate automatically.
+        }
+      }
 
-      loaderText.textContent = `Conectando... "${selected.name.replace(/^.*[\\/]/, "")}"`;
-      setStatus("Conectando al stream...", "loading");
+      if (!played) {
+        loaderText.textContent = "Conectando al torrent...";
+        video.src = `${API}/api/torrent/stream?magnet=${encodeURIComponent(magnet)}`;
+        video.load();
+        video.onloadeddata = () => { hideLoader(); setStatus(`Reproduciendo: ${title}`, "success"); };
+        video.onerror = () => { hideLoader(); setStatus("Error al reproducir. Prueba otro torrent con mas seeds.", "error"); };
+        return;
+      }
+
+      hideLoader();
+      setStatus(`Reproduciendo: ${title}`, "success");
+      buildFileButtons(info.videos, played.index);
 
     } catch (err) {
       hideLoader();

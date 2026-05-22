@@ -8,6 +8,14 @@ const TORRENT_DIR = '/tmp/webtorrent';
 const MAX_DISK_USAGE_MB = 512;                    // 512 MB max en disco
 const CLEANUP_INTERVAL_MS = 60 * 1000;            // revisar cada 1 min
 const MAX_TORRENT_AGE_MS = 5 * 60 * 1000;         // eliminar archivos > 5 min inactivos
+const DEFAULT_TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://tracker.bittor.pw:1337/announce',
+  'udp://exodus.desync.com:6969',
+  'udp://open.demonii.com:1337/announce'
+];
 // Cache de torrents activos: infoHash → torrent
 const activeTorrents = new Map();
 
@@ -127,9 +135,25 @@ function parseMagnetHash(magnet) {
   return m ? m[1].toLowerCase() : null;
 }
 
+function normalizeMagnet(magnet) {
+  if (!magnet || typeof magnet !== 'string') return magnet;
+  const raw = magnet.trim();
+  if (!raw.startsWith('magnet:?')) return raw;
+
+  const hasTrackers = /[?&]tr=/i.test(raw);
+  if (hasTrackers) return raw;
+
+  const trackerParams = DEFAULT_TRACKERS
+    .map(tr => `tr=${encodeURIComponent(tr)}`)
+    .join('&');
+
+  return `${raw}${raw.includes('?') ? '&' : '?'}${trackerParams}`;
+}
+
 async function getOrAddTorrent(magnet) {
   const c = await getClient();
-  const hash = parseMagnetHash(magnet);
+  const normalizedMagnet = normalizeMagnet(magnet);
+  const hash = parseMagnetHash(normalizedMagnet);
 
   // Si ya tenemos este torrent, reutilizar
   if (hash && activeTorrents.has(hash)) {
@@ -156,7 +180,7 @@ async function getOrAddTorrent(magnet) {
 
     console.log(`[WebTorrent] Añadiendo torrent: ${hash ? hash.substring(0, 12) + '...' : 'desconocido'}`);
 
-    c.add(magnet, { path: '/tmp/webtorrent' }, torrent => {
+    c.add(normalizedMagnet, { path: '/tmp/webtorrent', announce: DEFAULT_TRACKERS }, torrent => {
       clearTimeout(timeoutId);
       console.log(`[WebTorrent] Torrent listo: "${torrent.name}" (${torrent.files.length} archivos)`);
       torrent.files.forEach(f => console.log(`  - ${f.name} (${(f.length / 1048576).toFixed(1)} MB)`));
