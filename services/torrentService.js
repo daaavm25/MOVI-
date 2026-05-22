@@ -150,35 +150,40 @@ function normalizeMagnet(magnet) {
   return `${raw}${raw.includes('?') ? '&' : '?'}${trackerParams}`;
 }
 
+// Mapa de Promises en vuelo: evita que dos llamadas simultáneas al mismo hash
+// hagan c.add() dos veces o devuelvan el torrent antes de que files esté listo.
+const pendingTorrents = new Map();
+
 async function getOrAddTorrent(magnet) {
   const c = await getClient();
   const normalizedMagnet = normalizeMagnet(magnet);
   const hash = parseMagnetHash(normalizedMagnet);
 
-  // Si ya tenemos este torrent, reutilizar
+  // 1. Torrent ya cargado completamente
   if (hash && activeTorrents.has(hash)) {
     const existing = activeTorrents.get(hash);
     if (!existing.destroyed) {
-      console.log(`[WebTorrent] Reutilizando torrent existente: ${hash.substring(0, 12)}...`);
+      console.log(`[WebTorrent] Reutilizando torrent: ${hash.substring(0, 12)}...`);
       return existing;
     }
     activeTorrents.delete(hash);
   }
 
-  // También verificar en el cliente
-  const existingInClient = hash ? c.torrents.find(t => t.infoHash === hash) : null;
-  if (existingInClient && !existingInClient.destroyed) {
-    console.log(`[WebTorrent] Torrent ya existe en cliente: ${hash.substring(0, 12)}...`);
-    activeTorrents.set(hash, existingInClient);
-    return existingInClient;
+  // 2. Metadatos en proceso de carga: reutilizar la misma Promise en lugar de
+  //    llamar c.add() otra vez (que devolvería el torrent sin files aún)
+  if (hash && pendingTorrents.has(hash)) {
+    console.log(`[WebTorrent] Esperando metadatos ya en curso: ${hash.substring(0, 12)}...`);
+    return pendingTorrents.get(hash);
   }
 
-  return new Promise((resolve, reject) => {
+  // 3. Añadir nuevo torrent
+  console.log(`[WebTorrent] Añadiendo torrent: ${hash ? hash.substring(0, 12) + '...' : 'desconocido'}`);
+
+  const promise = new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
+      if (hash) pendingTorrents.delete(hash);
       reject(new Error('Timeout conectando al torrent (180s). Prueba un torrent con más seeds.'));
     }, 180000);
-
-    console.log(`[WebTorrent] Añadiendo torrent: ${hash ? hash.substring(0, 12) + '...' : 'desconocido'}`);
 
     c.add(normalizedMagnet, { path: TORRENT_DIR, announce: DEFAULT_TRACKERS }, torrent => {
       clearTimeout(timeoutId);
@@ -187,11 +192,12 @@ async function getOrAddTorrent(magnet) {
 
       if (torrent.infoHash) {
         activeTorrents.set(torrent.infoHash, torrent);
+        pendingTorrents.delete(torrent.infoHash);
       }
 
       // Priorizar el archivo de video más grande para iniciar la descarga de sus piezas
       const primaryVideo = torrent.files
-        .filter(f => /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov)$/i.test(f.name))
+        .filter(f => VIDEO_EXT_RE.test(f.name || f.path || ''))
         .sort((a, b) => b.length - a.length)[0];
       if (primaryVideo) primaryVideo.select();
 
@@ -202,9 +208,13 @@ async function getOrAddTorrent(magnet) {
 
     c.on('error', err => {
       clearTimeout(timeoutId);
+      if (hash) pendingTorrents.delete(hash);
       reject(err);
     });
   });
+
+  if (hash) pendingTorrents.set(hash, promise);
+  return promise;
 }
 
 const VIDEO_EXT_RE = /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov|rmvb|vob|mpg|mpeg|wmv|3gp|ogv|divx|xvid|hevc|h264|h265)$/i;

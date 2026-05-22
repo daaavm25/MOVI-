@@ -24,6 +24,9 @@ router.get('/info', async (req, res) => {
   try {
     const { magnet } = req.query;
     if (!magnet) return res.status(400).json({ error: 'Missing magnet' });
+    // Nunca cachear: la primera llamada puede llegar antes de que los metadatos
+    // estén listos y devolver videos=[], lo que el navegador cachearía con ETag.
+    res.set('Cache-Control', 'no-store');
     const info = await getTorrentInfo(magnet);
     res.json(info);
   } catch (err) {
