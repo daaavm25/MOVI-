@@ -438,10 +438,13 @@
     return `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
   }
 
-  function tryStream(videoItem, allVideos) {
+  function tryStream(videoItem, allVideos, attempt = 0) {
+    const MAX_ATTEMPTS = 3;
+    const RETRY_DELAY_MS = 6000; // esperar antes de reintentar (torrent necesita tiempo para descargar piezas iniciales)
+
     return new Promise((resolve, reject) => {
       const videoUrl = getStreamUrl(videoItem);
-      const timeoutMs = 25000;
+      const timeoutMs = 30000;
       let settled = false;
 
       const cleanup = () => {
@@ -454,7 +457,18 @@
         if (settled) return;
         settled = true;
         cleanup();
-        reject(new Error(reason));
+        video.removeAttribute('src');
+        video.load();
+
+        if (attempt < MAX_ATTEMPTS - 1) {
+          const next = attempt + 1;
+          loaderText.textContent = `Sin datos aún, reintentando en ${RETRY_DELAY_MS / 1000}s... (${next + 1}/${MAX_ATTEMPTS})`;
+          setTimeout(() => {
+            tryStream(videoItem, allVideos, next).then(resolve).catch(reject);
+          }, RETRY_DELAY_MS);
+        } else {
+          reject(new Error(reason));
+        }
       };
 
       const ok = () => {
@@ -466,15 +480,21 @@
 
       video.onloadeddata = () => ok();
       video.onerror = () => fail("archivo no compatible o sin peers");
-      video.onstalled = () => fail("stream estancado");
+      video.onstalled = () => {
+        // stalled no siempre es fatal: puede ser buffer normal; solo falla en intento inicial
+        if (attempt === 0) fail("stream estancado");
+      };
 
-      loaderText.textContent = `Conectando... "${videoItem.name.replace(/^.*[\\/]/, "")}"`;
+      const shortName = videoItem.name.replace(/^.*[\\/]/, "");
+      loaderText.textContent = attempt === 0
+        ? `Conectando... "${shortName}"`
+        : `Reconectando... "${shortName}" (intento ${attempt + 1}/${MAX_ATTEMPTS})`;
       setStatus(`Conectando al stream (${allVideos.indexOf(videoItem) + 1}/${allVideos.length})...`, "loading");
 
       video.src = videoUrl;
       video.load();
       video.play().catch(() => {
-        // Ignore autoplay restrictions. loadeddata still signals successful stream.
+        // Ignorar restricciones de autoplay: loadeddata confirma el stream.
       });
 
       setTimeout(() => {
