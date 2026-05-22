@@ -193,6 +193,38 @@
     color: #3498db;
   }
   .sub-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ── Opciones del reproductor (ahorro de datos, etc.) ── */
+  .player-options {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 960px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .option-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: #8a9ab0;
+    cursor: pointer;
+    font-size: 0.82rem;
+    padding: 6px 14px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .option-btn:hover { background: rgba(255,255,255,0.1); }
+  .option-btn.active {
+    background: rgba(46,204,113,0.15);
+    border-color: rgba(46,204,113,0.5);
+    color: #2ecc71;
+  }
+  .option-hint {
+    font-size: 0.78rem;
+    color: #556070;
+    flex: 1;
+  }
 </style>
 </head>
 <body>
@@ -214,6 +246,13 @@
   </div>
 
   <p id="playerStatus" class="player-status loading">Obteniendo información del torrent...</p>
+
+  <div id="playerOptions" class="player-options">
+    <button id="dataSaverBtn" class="option-btn" title="Reduce el consumo de datos ~10x: transcodifica a 720p ~1.8 Mbps en vez del original 15-20 Mbps">
+      📶 Ahorro de datos
+    </button>
+    <span class="option-hint" id="dataHint"></span>
+  </div>
 
   <div id="fileControls" class="file-controls" hidden>
     <p class="file-controls__label">📺 Archivos de video</p>
@@ -273,6 +312,7 @@
       const short = v.name.replace(/^.*[\\/]/, "").replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
       btn.textContent = `${short.slice(0, 24)}${short.length > 24 ? "…" : ""} · ${v.size}`;
       btn.addEventListener("click", () => {
+        currentVideoItem = v;
         video.src = getStreamUrl(v);
         video.load(); video.play();
         fileList.querySelectorAll(".file-btn").forEach(b => b.classList.toggle("active", b === btn));
@@ -373,12 +413,26 @@
       .sort((a, b) => b._rank - a._rank);
   }
 
+  let dataSaver = localStorage.getItem('movieplus:dataSaver') === '1';
+  let currentVideoItem = null;
+
+  function updateDataSaverBtn() {
+    const btn = document.getElementById('dataSaverBtn');
+    const hint = document.getElementById('dataHint');
+    if (!btn) return;
+    btn.classList.toggle('active', dataSaver);
+    btn.textContent = dataSaver ? '📶 Ahorro ON (720p)' : '📶 Ahorro de datos';
+    if (hint) hint.textContent = dataSaver
+      ? '≈720p · ~1.8 Mbps · ≈10x menos datos'
+      : 'Calidad original · sin límite de bitrate';
+  }
+
   function getStreamUrl(videoItem) {
-    // MKV/AVI/TS suelen tener AC3/DTS que los navegadores no soportan.
-    // Para esos formatos usamos el endpoint de transcoding (FFmpeg → AAC + fragmented MP4).
+    // Formatos con audio incompatible (AC3/DTS) O modo ahorro activo → transcode
     const needsTranscode = /\.(mkv|avi|ts|flv|mov)$/i.test(videoItem.name || '');
-    if (needsTranscode) {
-      return `${API}/api/torrent/transcode?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
+    if (needsTranscode || dataSaver) {
+      const saver = dataSaver ? '&saver=1' : '';
+      return `${API}/api/torrent/transcode?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}${saver}`;
     }
     return `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
   }
@@ -496,6 +550,7 @@
       }
 
       hideLoader();
+      currentVideoItem = played;
       setStatus(`Reproduciendo: ${title}`, "success");
       buildFileButtons(info.videos, played.index);
 
@@ -504,6 +559,46 @@
       setStatus("Error de conexión: " + (err.message || "desconocido"), "error");
     }
   }
+
+  // Inicializar botón de ahorro y registrar toggle
+  updateDataSaverBtn();
+  document.getElementById('dataSaverBtn')?.addEventListener('click', () => {
+    dataSaver = !dataSaver;
+    localStorage.setItem('movieplus:dataSaver', dataSaver ? '1' : '0');
+    updateDataSaverBtn();
+    if (currentVideoItem) {
+      setStatus('Cambiando calidad...', 'loading');
+      loaderOverlay.classList.remove('hidden');
+      loaderText.textContent = dataSaver ? 'Activando ahorro de datos (720p)...' : 'Cambiando a calidad original...';
+      video.src = getStreamUrl(currentVideoItem);
+      video.load();
+      video.play().catch(() => {});
+      video.onloadeddata = () => {
+        hideLoader();
+        setStatus(dataSaver ? 'Ahorro de datos activado (≈720p, ~1.8 Mbps)' : 'Calidad original activada', 'success');
+      };
+    }
+  });
+
+  // Inicializar botón de ahorro y registrar toggle
+  updateDataSaverBtn();
+  document.getElementById('dataSaverBtn')?.addEventListener('click', () => {
+    dataSaver = !dataSaver;
+    localStorage.setItem('movieplus:dataSaver', dataSaver ? '1' : '0');
+    updateDataSaverBtn();
+    if (currentVideoItem) {
+      setStatus('Cambiando calidad...', 'loading');
+      loaderOverlay.classList.remove('hidden');
+      loaderText.textContent = dataSaver ? 'Activando ahorro de datos (720p)...' : 'Cambiando a calidad original...';
+      video.src = getStreamUrl(currentVideoItem);
+      video.load();
+      video.play().catch(() => {});
+      video.onloadeddata = () => {
+        hideLoader();
+        setStatus(dataSaver ? 'Ahorro de datos activado (≈720p, ~1.8 Mbps)' : 'Calidad original activada', 'success');
+      };
+    }
+  });
 
   startPlayback();
 })();

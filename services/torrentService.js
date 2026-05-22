@@ -124,7 +124,7 @@ let client;
 async function getClient() {
   if (!client) {
     const WebTorrentClass = await getWebTorrent();
-    client = new WebTorrentClass();
+    client = new WebTorrentClass({ maxConns: 100 }); // más peers = descarga más rápida
     client.on('error', err => console.error('[WebTorrent] Client error:', err.message));
   }
   return client;
@@ -188,6 +188,12 @@ async function getOrAddTorrent(magnet) {
       if (torrent.infoHash) {
         activeTorrents.set(torrent.infoHash, torrent);
       }
+
+      // Priorizar el archivo de video más grande para iniciar la descarga de sus piezas
+      const primaryVideo = torrent.files
+        .filter(f => /\.(mp4|mkv|avi|webm|ts|m4v|flv|mov)$/i.test(f.name))
+        .sort((a, b) => b.length - a.length)[0];
+      if (primaryVideo) primaryVideo.select();
 
       torrent.on('error', err => console.error(`[WebTorrent] Torrent error: ${err.message}`));
 
@@ -268,6 +274,9 @@ async function streamFile(magnet, fileIndex, res) {
 
   const mimeModule = await getMime();
   let mimeType = mimeModule.getType(file.name) || 'application/octet-stream';
+
+  // Priorizar las piezas de este archivo para streaming más ágil
+  file.select();
 
   const isSrt = /\.srt$/i.test(file.name);
   if (isSrt) mimeType = 'text/vtt';
@@ -400,11 +409,14 @@ async function streamTorrent(magnet, res) {
 }
 
 // ─── Transcode: pipe a través de FFmpeg para convertir audio AC3/DTS → AAC ───
-// El video se copia sin recodificar (rápido). Salida: fragmented MP4 (web-compatible)
-async function streamFileTranscoded(magnet, fileIndex, res) {
+// dataSaver=true: re-codifica video a 720p ~1.8 Mbps (ahorro ~10x datos)
+// dataSaver=false: copia video sin re-codificar, solo convierte audio a AAC
+async function streamFileTranscoded(magnet, fileIndex, res, dataSaver = false) {
   const torrent = await getOrAddTorrent(magnet);
   const file = torrent.files[fileIndex];
   if (!file) throw new Error(`File index ${fileIndex} not found in torrent`);
+
+  file.select(); // priorizar piezas de este archivo
 
   res.writeHead(200, {
     'Content-Type': 'video/mp4',
@@ -413,14 +425,30 @@ async function streamFileTranscoded(magnet, fileIndex, res) {
     ...getCorsHeadersForRequest(res.req)
   });
 
-  const ffmpegArgs = [
+  // Modo ahorro: re-codifica a 720p ~1.8 Mbps (≈10x menos datos que 1080p original)
+  // Modo normal: copia video (sin pérdida) + convierte audio a AAC
+  const ffmpegArgs = dataSaver ? [
     '-i', 'pipe:0',
-    '-c:v', 'copy',          // copia video sin recodificar (rápido, sin pérdida)
-    '-c:a', 'aac',           // convierte audio (AC3/DTS/etc.) → AAC
-    '-b:a', '192k',          // bitrate de audio
-    '-ac', '2',              // stereo (compatible con todos los navegadores)
+    '-c:v', 'libx264',          // re-encode video para reducir bitrate
+    '-preset', 'veryfast',      // rápido, bajo consumo de CPU
+    '-crf', '28',               // calidad (mayor = menor bitrate)
+    '-maxrate', '1800k',        // techo de 1.8 Mbps en video
+    '-bufsize', '3600k',
+    '-vf', 'scale=-2:720',      // escalar a 720p manteniendo proporción
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ac', '2',
     '-f', 'mp4',
-    '-movflags', 'frag_keyframe+empty_moov+default_base_moof', // fragmented MP4
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+    'pipe:1'
+  ] : [
+    '-i', 'pipe:0',
+    '-c:v', 'copy',             // copia video sin re-codificar (rápido, sin pérdida)
+    '-c:a', 'aac',              // convierte audio (AC3/DTS/etc.) → AAC
+    '-b:a', '192k',
+    '-ac', '2',
+    '-f', 'mp4',
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
     'pipe:1'
   ];
 

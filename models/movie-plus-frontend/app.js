@@ -1547,6 +1547,11 @@ function openTorrentInNewWindow(torrent) {
 		showToast("Este torrent no tiene magnet link disponible.", "error");
 		return;
 	}
+	// Precargar torrent en el servidor antes de abrir el player:
+	// cuando el player cargue, el servidor ya estará conectando a los peers
+	fetch(`${API}/api/torrent/info?magnet=${encodeURIComponent(torrent.magnet)}`, {
+		signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(90000) : undefined
+	}).catch(() => {});
 	const title = encodeURIComponent(torrent.title || "Torrent");
 	const magnet = encodeURIComponent(torrent.magnet);
 	const playerUrl = `player.html?magnet=${magnet}&title=${title}`;

@@ -54,7 +54,8 @@ router.get('/transcode', async (req, res) => {
     if (!magnet || index === undefined) {
       return res.status(400).json({ error: 'Missing magnet or index' });
     }
-    await streamFileTranscoded(magnet, parseInt(index, 10), res);
+    const dataSaver = req.query.saver === '1';
+    await streamFileTranscoded(magnet, parseInt(index, 10), res, dataSaver);
   } catch (err) {
     console.error('[TorrentRoutes] Transcode error:', err.message);
     if (!res.headersSent) res.status(500).json({ error: err.message });
