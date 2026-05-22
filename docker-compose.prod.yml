@@ -23,10 +23,6 @@ services:
       DB_HOST: db
       DB_PORT: 5432
 
-  frontend:
-    restart: always
-    ports: []                 # Solo accesible desde nginx
-
   # ── Nginx: reverse proxy + balanceador de carga ──────────────────────────
   nginx:
     image: nginx:1.27-alpine

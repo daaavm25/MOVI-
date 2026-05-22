@@ -70,7 +70,7 @@ async function getSessionUser(req) {
 const TMDB_BASE_URL = getRequiredEnv('TMDB_BASE_URL');
 const TMDB_API_KEY = getRequiredEnv('TMDB_API_KEY');
 const DEFAULT_PROVIDER_COUNTRY = String(process.env.TMDB_PROVIDER_COUNTRY || 'MX').toUpperCase();
-const FRONTEND_DIR = path.join(__dirname, 'models', 'movie-plus-frontend');
+const FRONTEND_DIR = path.join(__dirname, 'frontend');
 const ADMIN_USERNAMES = String(process.env.ADMIN_USERNAMES || '')
     .split(',')
     .map(u => u.trim().toLowerCase())
