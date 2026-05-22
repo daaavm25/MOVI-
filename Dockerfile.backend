@@ -5,11 +5,18 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+# curl (healthcheck) + ffmpeg (transcoding de audio AC3/DTS → AAC)
+RUN apt-get update -qq && apt-get install -y --no-install-recommends curl ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 # Permisos: corre como usuario no-root (seguridad en producción)
+# Crea /tmp/webtorrent aquí para que Docker inicialice el volumen con el owner correcto
 RUN addgroup --system appgroup && \
     adduser  --system --ingroup appgroup appuser && \
+    mkdir -p /tmp/webtorrent && \
+    chown appuser:appgroup /tmp/webtorrent && \
     chown -R appuser:appgroup /app
 USER appuser
 

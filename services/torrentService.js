@@ -1,7 +1,7 @@
 // services/torrentService.js
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const { getCorsHeadersForRequest } = require('../config/cors');
 
 const TORRENT_DIR = '/tmp/webtorrent';
@@ -180,7 +180,7 @@ async function getOrAddTorrent(magnet) {
 
     console.log(`[WebTorrent] Añadiendo torrent: ${hash ? hash.substring(0, 12) + '...' : 'desconocido'}`);
 
-    c.add(normalizedMagnet, { path: '/tmp/webtorrent', announce: DEFAULT_TRACKERS }, torrent => {
+    c.add(normalizedMagnet, { path: TORRENT_DIR, announce: DEFAULT_TRACKERS }, torrent => {
       clearTimeout(timeoutId);
       console.log(`[WebTorrent] Torrent listo: "${torrent.name}" (${torrent.files.length} archivos)`);
       torrent.files.forEach(f => console.log(`  - ${f.name} (${(f.length / 1048576).toFixed(1)} MB)`));
@@ -399,4 +399,54 @@ async function streamTorrent(magnet, res) {
   }
 }
 
-module.exports = { streamTorrent, getTorrentInfo, streamFile, cleanupTorrentDir };
+// ─── Transcode: pipe a través de FFmpeg para convertir audio AC3/DTS → AAC ───
+// El video se copia sin recodificar (rápido). Salida: fragmented MP4 (web-compatible)
+async function streamFileTranscoded(magnet, fileIndex, res) {
+  const torrent = await getOrAddTorrent(magnet);
+  const file = torrent.files[fileIndex];
+  if (!file) throw new Error(`File index ${fileIndex} not found in torrent`);
+
+  res.writeHead(200, {
+    'Content-Type': 'video/mp4',
+    'Transfer-Encoding': 'chunked',
+    'Cache-Control': 'no-store',
+    ...getCorsHeadersForRequest(res.req)
+  });
+
+  const ffmpegArgs = [
+    '-i', 'pipe:0',
+    '-c:v', 'copy',          // copia video sin recodificar (rápido, sin pérdida)
+    '-c:a', 'aac',           // convierte audio (AC3/DTS/etc.) → AAC
+    '-b:a', '192k',          // bitrate de audio
+    '-ac', '2',              // stereo (compatible con todos los navegadores)
+    '-f', 'mp4',
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof', // fragmented MP4
+    'pipe:1'
+  ];
+
+  const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+  const inputStream = file.createReadStream();
+
+  inputStream.pipe(ffmpegProc.stdin);
+  ffmpegProc.stdout.pipe(res);
+  ffmpegProc.stderr.on('data', () => {}); // ffmpeg escribe progreso en stderr, no es error
+
+  ffmpegProc.on('error', (err) => {
+    console.error('[FFmpeg] Error al iniciar:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'FFmpeg no disponible' });
+    else res.end();
+  });
+
+  ffmpegProc.on('close', (code) => {
+    if (code !== 0 && code !== null) console.warn(`[FFmpeg] Terminó con código ${code}`);
+    res.end();
+  });
+
+  res.on('close', () => {
+    inputStream.destroy();
+    try { ffmpegProc.stdin.destroy(); } catch (_) {}
+    ffmpegProc.kill('SIGTERM');
+  });
+}
+
+module.exports = { streamTorrent, getTorrentInfo, streamFile, streamFileTranscoded, cleanupTorrentDir };

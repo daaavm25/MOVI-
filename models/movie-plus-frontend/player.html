@@ -273,7 +273,7 @@
       const short = v.name.replace(/^.*[\\/]/, "").replace(/\.(mkv|mp4|avi|mov|webm)$/i, "");
       btn.textContent = `${short.slice(0, 24)}${short.length > 24 ? "…" : ""} · ${v.size}`;
       btn.addEventListener("click", () => {
-        video.src = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${v.index}`;
+        video.src = getStreamUrl(v);
         video.load(); video.play();
         fileList.querySelectorAll(".file-btn").forEach(b => b.classList.toggle("active", b === btn));
       });
@@ -373,9 +373,19 @@
       .sort((a, b) => b._rank - a._rank);
   }
 
+  function getStreamUrl(videoItem) {
+    // MKV/AVI/TS suelen tener AC3/DTS que los navegadores no soportan.
+    // Para esos formatos usamos el endpoint de transcoding (FFmpeg → AAC + fragmented MP4).
+    const needsTranscode = /\.(mkv|avi|ts|flv|mov)$/i.test(videoItem.name || '');
+    if (needsTranscode) {
+      return `${API}/api/torrent/transcode?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
+    }
+    return `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
+  }
+
   function tryStream(videoItem, allVideos) {
     return new Promise((resolve, reject) => {
-      const videoUrl = `${API}/api/torrent/file?magnet=${encodeURIComponent(magnet)}&index=${videoItem.index}`;
+      const videoUrl = getStreamUrl(videoItem);
       const timeoutMs = 25000;
       let settled = false;
 

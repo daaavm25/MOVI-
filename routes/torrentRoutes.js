@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { searchTorrents } = require('../services/jackettService');
-const { streamTorrent, getTorrentInfo, streamFile } = require('../services/torrentService');
+const { streamTorrent, getTorrentInfo, streamFile, streamFileTranscoded } = require('../services/torrentService');
 
 // GET /api/torrent/search?query=<title>&lang=<lang>&year=<year>&tmdbId=<id>
 router.get('/search', async (req, res) => {
@@ -42,6 +42,21 @@ router.get('/file', async (req, res) => {
     await streamFile(magnet, parseInt(index, 10), res);
   } catch (err) {
     console.error('[TorrentRoutes] File stream error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+    else res.end();
+  }
+});
+
+// GET /api/torrent/transcode?magnet=<magnet>&index=<fileIndex> — stream con audio transcoded a AAC
+router.get('/transcode', async (req, res) => {
+  try {
+    const { magnet, index } = req.query;
+    if (!magnet || index === undefined) {
+      return res.status(400).json({ error: 'Missing magnet or index' });
+    }
+    await streamFileTranscoded(magnet, parseInt(index, 10), res);
+  } catch (err) {
+    console.error('[TorrentRoutes] Transcode error:', err.message);
     if (!res.headersSent) res.status(500).json({ error: err.message });
     else res.end();
   }

@@ -1,12 +1,11 @@
 # docker-compose.prod.yml — Sobreescritura para PRODUCCIÓN
 # Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# Cubre los 5 puntos del pizarrón:
-#   1. Persistencia   → volúmenes pgdata y webtorrent-data
-#   2. Respaldos      → ver scripts/backup.sh
-#   3. Disponibilidad → healthchecks + restart: always + nginx
-#   4. Seguridad      → nginx TLS, no expone puertos DB/backend directamente
-#   5. Escalabilidad  → backend con réplicas, nginx como load balancer
+# Qué añade sobre docker-compose.yml:
+#   1. Persistencia   → volúmenes pgdata y webtorrent-data (heredados)
+#   2. Disponibilidad → restart: always + nginx como único punto de entrada
+#   3. Seguridad      → DB y backend NO exponen puertos al exterior
+#   4. Streaming      → nginx con proxy_buffering off (video no se cuelga)
 
 services:
 
@@ -16,58 +15,33 @@ services:
 
   backend:
     restart: always
-    ports: []                 # Solo accesible desde nginx (red interna)
+    ports: []                 # Solo accesible desde nginx (red Docker interna)
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 8000
       DB_HOST: db
       DB_PORT: 5432
-    deploy:
-      replicas: 2             # Escalabilidad horizontal
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
 
   frontend:
     restart: always
     ports: []                 # Solo accesible desde nginx
 
-  # ── Nginx: reverse proxy + TLS + load balancer ───────────────────────────
+  # ── Nginx: reverse proxy + balanceador de carga ──────────────────────────
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     restart: always
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - certbot-conf:/etc/letsencrypt:ro
-      - certbot-www:/var/www/certbot:ro
     depends_on:
       backend:
         condition: service_healthy
-
-  # ── Certbot: obtiene/renueva certificados Let's Encrypt ──────────────────
-  # Uso inicial:
-  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-  #     run --rm certbot certonly --webroot \
-  #     --webroot-path=/var/www/certbot \
-  #     --email TU_EMAIL@dominio.com \
-  #     --agree-tos --no-eff-email \
-  #     -d TU_DOMINIO.com
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - certbot-conf:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    profiles:
-      - certbot              # Solo se ejecuta cuando se llama explícitamente
-
-volumes:
-  certbot-conf:
-  certbot-www:
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

@@ -280,21 +280,21 @@ success "Proyecto copiado a /home/$ADMIN_USER/movi/"
 # ════════════════════════════════════════════════════════════════════════════
 step "PASO 9 — Configurar .env en la VM"
 # ════════════════════════════════════════════════════════════════════════════
-# Actualiza FRONTEND_URL con la IP pública real
+# Actualiza FRONTEND_URL con la IP pública — puerto 80 via nginx
 $SSH_CMD "sed -i \"s|FRONTEND_URL=.*|FRONTEND_URL=http://$VM_IP|g\" /home/$ADMIN_USER/movi/.env"
 $SSH_CMD "sed -i \"s|NODE_ENV=.*|NODE_ENV=production|g\" /home/$ADMIN_USER/movi/.env"
 $SSH_CMD "sed -i \"s|DB_HOST=.*|DB_HOST=db|g\" /home/$ADMIN_USER/movi/.env"
-success ".env actualizado para producción"
+success ".env actualizado para producción (FRONTEND_URL=http://$VM_IP)"
 
 # ════════════════════════════════════════════════════════════════════════════
 step "PASO 10 — Levantar la aplicación con Docker Compose"
 # ════════════════════════════════════════════════════════════════════════════
 $SSH_CMD "bash -s" << 'REMOTE_RUN'
 cd /home/$(whoami)/movi
-# Primer run como sudo (el grupo docker tarda en activarse sin re-login)
-sudo docker compose up -d --build
+# Producción: nginx en puerto 80, backend sin puertos expuestos
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 echo "[VM] Contenedores activos:"
-sudo docker compose ps
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 REMOTE_RUN
 
 success "Aplicación desplegada"
@@ -323,7 +323,7 @@ echo -e "${GREEN}${BOLD}══════════════════�
 echo -e "${GREEN}${BOLD}  ✔  DESPLIEGUE EN AZURE COMPLETADO${NC}"
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  🌐 App disponible en:  ${CYAN}http://$VM_IP:8000${NC}"
+  echo -e "  🌐 App disponible en:  ${CYAN}http://$VM_IP${NC}  (nginx puerto 80)"
 echo -e "  🖥  VM IP pública:      ${CYAN}$VM_IP${NC}"
 echo -e "  🔑 SSH:                ${CYAN}ssh -i $SSH_KEY_FILE $ADMIN_USER@$VM_IP${NC}"
 echo ""
